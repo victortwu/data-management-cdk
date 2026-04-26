@@ -1,0 +1,20 @@
+{
+  "name": "data-management-cdk",
+  "version": "0.1.0",
+  "bin": {
+    "data-management-cdk": "bin/data-management-cdk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "aws-cdk": "2.188.0",
+    "typescript": "~5.7.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.188.0",
+    "constructs": "^10.0.0"
+  }
+}
