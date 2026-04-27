@@ -1,0 +1,237 @@
+import * as cdk from 'aws-cdk-lib';
+import { Template, Match } from 'aws-cdk-lib/assertions';
+import { IngestionStack } from '../lib/ingestion-stack';
+import { ProcessingStack } from '../lib/processing-stack';
+
+function createStacks() {
+  const app = new cdk.App();
+  const ingestion = new IngestionStack(app, 'IngestionStack-Test', {
+    stage: { stageName: 'Test' },
+  });
+  const processing = new ProcessingStack(app, 'ProcessingStack-Test', {
+    stage: { stageName: 'Test' },
+    landingBucket: ingestion.landingBucket,
+    ingestionQueue: ingestion.ingestionQueue,
+  });
+  return { ingestion, processing, template: Template.fromStack(processing) };
+}
+
+describe('Processed Bucket', () => {
+  test('exists with correct config', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      VersioningConfiguration: { Status: 'Enabled' },
+      BucketEncryption: {
+        ServerSideEncryptionConfiguration: [
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+        ],
+      },
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+  });
+});
+
+describe('Glacier Bucket', () => {
+  test('has Glacier transition lifecycle rule', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Transitions: Match.arrayWith([
+              Match.objectLike({ StorageClass: 'GLACIER_IR', TransitionInDays: 0 }),
+            ]),
+          }),
+        ]),
+      },
+    });
+  });
+});
+
+describe('Archive Queue', () => {
+  test('has DLQ with maxReceiveCount of 3', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      VisibilityTimeout: 300,
+      RedrivePolicy: { maxReceiveCount: 3 },
+    });
+  });
+
+  test('DLQ has 14-day retention', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      MessageRetentionPeriod: 1209600,
+    });
+  });
+});
+
+describe('Archive EventBridge Rule', () => {
+  test('routes S3 Object Created events to archive queue', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::Events::Rule', {
+      EventPattern: {
+        source: ['aws.s3'],
+        'detail-type': ['Object Created'],
+      },
+      Targets: Match.arrayWith([
+        Match.objectLike({ Arn: Match.anyValue() }),
+      ]),
+    });
+  });
+});
+
+describe('Document Metadata Table', () => {
+  test('has documentId partition key and on-demand billing', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      KeySchema: [{ AttributeName: 'documentId', KeyType: 'HASH' }],
+      BillingMode: 'PAY_PER_REQUEST',
+    });
+  });
+
+  test('has ByType GSI', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'ByType',
+          KeySchema: [
+            { AttributeName: 'documentType', KeyType: 'HASH' },
+            { AttributeName: 'documentDate', KeyType: 'RANGE' },
+          ],
+        }),
+      ]),
+    });
+  });
+
+  test('has ByVendor GSI', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'ByVendor',
+          KeySchema: [
+            { AttributeName: 'vendorName', KeyType: 'HASH' },
+            { AttributeName: 'documentDate', KeyType: 'RANGE' },
+          ],
+        }),
+      ]),
+    });
+  });
+
+  test('has ByStatus GSI', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'ByStatus',
+          KeySchema: [
+            { AttributeName: 'status', KeyType: 'HASH' },
+            { AttributeName: 'uploadedAt', KeyType: 'RANGE' },
+          ],
+        }),
+      ]),
+    });
+  });
+
+  test('has RETAIN removal policy', () => {
+    const { template } = createStacks();
+    const tables = template.findResources('AWS::DynamoDB::Table');
+    const metadataTable = Object.values(tables).find((t: any) =>
+      t.Properties.KeySchema.some((k: any) => k.AttributeName === 'documentId')
+    ) as any;
+    expect(metadataTable.DeletionPolicy).toBe('Retain');
+  });
+});
+
+describe('Classification Config Table', () => {
+  test('has documentType partition key and on-demand billing', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      KeySchema: [{ AttributeName: 'documentType', KeyType: 'HASH' }],
+      BillingMode: 'PAY_PER_REQUEST',
+    });
+  });
+
+  test('creates exactly 2 DynamoDB tables', () => {
+    const { template } = createStacks();
+    template.resourceCountIs('AWS::DynamoDB::Table', 2);
+  });
+});
+
+describe('Archive Lambda', () => {
+  test('exists with Node.js 20 runtime', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs20.x',
+      Environment: {
+        Variables: Match.objectLike({
+          GLACIER_BUCKET: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  test('has SQS event source from archive queue', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      EventSourceArn: Match.anyValue(),
+    });
+  });
+});
+
+describe('Processing Lambda', () => {
+  test('exists with correct environment variables', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs20.x',
+      MemorySize: 512,
+      Timeout: 300,
+      Environment: {
+        Variables: Match.objectLike({
+          PROCESSED_BUCKET: Match.anyValue(),
+          DOCUMENT_TABLE: Match.anyValue(),
+          CLASSIFICATION_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  test('has Textract permissions', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'textract:DetectDocumentText',
+            Effect: 'Allow',
+          }),
+        ]),
+      },
+    });
+  });
+
+  test('has Comprehend permissions', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'comprehend:DetectEntities',
+            Effect: 'Allow',
+          }),
+        ]),
+      },
+    });
+  });
+
+  test('has 2 event source mappings (archive + processing)', () => {
+    const { template } = createStacks();
+    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 2);
+  });
+});
