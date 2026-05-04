@@ -3,7 +3,7 @@ import { Template, Match } from 'aws-cdk-lib/assertions';
 import { IngestionStack } from '../lib/ingestion-stack';
 import { ProcessingStack } from '../lib/processing-stack';
 
-function createStacks() {
+const createStacks = () => {
   const app = new cdk.App();
   const ingestion = new IngestionStack(app, 'IngestionStack-Test', {
     stage: { stageName: 'Test' },
