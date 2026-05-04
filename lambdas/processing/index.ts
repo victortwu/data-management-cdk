@@ -22,6 +22,7 @@ interface DocumentRecord {
   documentId: string;
   status: string;
   reviewReason?: string;
+  classificationDebug?: { typesChecked: number; keywordsChecked: number; textPreview: string };
   fileType: string;
   source: string;
   uploadedAt: string;
@@ -101,17 +102,32 @@ const detectEntities = async (text: string) => {
   return result;
 };
 
-const classifyDocument = async (text: string): Promise<string> => {
+interface ClassificationResult {
+  documentType: string;
+  debug: { typesChecked: number; keywordsChecked: number; textPreview: string };
+}
+
+const classifyDocument = async (text: string): Promise<ClassificationResult> => {
   const configItems = await ddb.send(new ScanCommand({ TableName: CLASSIFICATION_TABLE }));
   const lowerText = text.toLowerCase();
+  let keywordsChecked = 0;
 
   for (const item of configItems.Items ?? []) {
     const keywords = (item.keywords as string[]) ?? [];
+    keywordsChecked += keywords.length;
     if (keywords.some((kw) => lowerText.includes(kw.toLowerCase()))) {
-      return item.documentType as string;
+      return { documentType: item.documentType as string, debug: { typesChecked: configItems.Items?.length ?? 0, keywordsChecked, textPreview: text.slice(0, 200) } };
     }
   }
-  return 'unknown';
+
+  return {
+    documentType: 'unknown',
+    debug: {
+      typesChecked: configItems.Items?.length ?? 0,
+      keywordsChecked,
+      textPreview: text.slice(0, 200),
+    },
+  };
 };
 
 const buildTags = (documentType: string, entities: { organizations: string[]; dates: string[] }): string[] => {
@@ -178,13 +194,14 @@ const processDocument = async (
   const entities = await detectEntities(extractedText);
 
   // Classify document type
-  const documentType = await classifyDocument(extractedText);
+  const { documentType, debug: classificationDebug } = await classifyDocument(extractedText);
 
   // Build metadata
   const metadata: DocumentRecord = {
     documentId,
     status: documentType === 'unknown' ? 'needs_review' : 'processed',
     reviewReason: documentType === 'unknown' ? 'no_classification_match' : undefined,
+    classificationDebug: documentType === 'unknown' ? classificationDebug : undefined,
     fileType,
     source,
     uploadedAt: new Date().toISOString(),

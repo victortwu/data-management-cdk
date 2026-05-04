@@ -1,6 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -15,29 +17,46 @@ export interface ProcessingStackProps extends cdk.StackProps {
   stage: StageConfig;
   landingBucket: s3.Bucket;
   ingestionQueue: sqs.Queue;
+  ingestionEncryptionKey: kms.Key;
 }
 
-export class ProcessingStack extends cdk.Stack {
+export class DataMgmtProcessingStack extends cdk.Stack {
   public readonly processedBucket: s3.Bucket;
   public readonly glacierBucket: s3.Bucket;
   public readonly archiveQueue: sqs.Queue;
   public readonly archiveDlq: sqs.Queue;
   public readonly documentTable: dynamodb.Table;
   public readonly classificationConfigTable: dynamodb.Table;
+  public readonly encryptionKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props);
 
+    this.encryptionKey = new kms.Key(this, 'ProcessingKey', {
+      enableKeyRotation: true,
+      description: `Processing stack encryption key (${props.stage.stageName})`,
+      alias: `processing-${props.stage.stageName.toLowerCase()}`,
+    });
+
+    // Allow EventBridge to use the key for SQS message delivery
+    this.encryptionKey.addToResourcePolicy(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal('events.amazonaws.com')],
+      actions: ['kms:Decrypt', 'kms:GenerateDataKey'],
+      resources: ['*'],
+    }));
+
     this.processedBucket = new s3.Bucket(this, 'ProcessedBucket', {
       versioned: true,
-      encryption: s3.BucketEncryption.S3_MANAGED,
+      encryption: s3.BucketEncryption.KMS,
+      encryptionKey: this.encryptionKey,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     this.glacierBucket = new s3.Bucket(this, 'GlacierBucket', {
-      encryption: s3.BucketEncryption.S3_MANAGED,
+      encryption: s3.BucketEncryption.KMS,
+      encryptionKey: this.encryptionKey,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -51,10 +70,12 @@ export class ProcessingStack extends cdk.Stack {
 
     this.archiveDlq = new sqs.Queue(this, 'ArchiveDlq', {
       retentionPeriod: cdk.Duration.days(14),
+      encryptionMasterKey: this.encryptionKey,
     });
 
     this.archiveQueue = new sqs.Queue(this, 'ArchiveQueue', {
       visibilityTimeout: cdk.Duration.seconds(300),
+      encryptionMasterKey: this.encryptionKey,
       deadLetterQueue: {
         queue: this.archiveDlq,
         maxReceiveCount: 3,
@@ -75,6 +96,8 @@ export class ProcessingStack extends cdk.Stack {
     this.documentTable = new dynamodb.Table(this, 'DocumentMetadata', {
       partitionKey: { name: 'documentId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+      encryptionKey: this.encryptionKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -99,6 +122,8 @@ export class ProcessingStack extends cdk.Stack {
     this.classificationConfigTable = new dynamodb.Table(this, 'ClassificationConfig', {
       partitionKey: { name: 'documentType', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+      encryptionKey: this.encryptionKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -114,6 +139,7 @@ export class ProcessingStack extends cdk.Stack {
 
     props.landingBucket.grantRead(archiveLambda);
     this.glacierBucket.grantWrite(archiveLambda);
+    props.ingestionEncryptionKey.grantDecrypt(archiveLambda);
     archiveLambda.addEventSource(new sqsSources.SqsEventSource(this.archiveQueue));
 
     const processingLambda = new lambda.NodejsFunction(this, 'ProcessingLambda', {
@@ -133,6 +159,7 @@ export class ProcessingStack extends cdk.Stack {
     this.processedBucket.grantWrite(processingLambda);
     this.documentTable.grantWriteData(processingLambda);
     this.classificationConfigTable.grantReadData(processingLambda);
+    props.ingestionEncryptionKey.grantDecrypt(processingLambda);
     processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
       actions: ['textract:DetectDocumentText'],
       resources: ['*'],

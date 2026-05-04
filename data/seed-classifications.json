@@ -1,0 +1,27 @@
+[
+  {
+    "documentType": "invoice",
+    "keywords": ["invoice", "amount due", "bill to", "payment terms", "net 30", "remit to", "invoice number"],
+    "description": "Invoices and bills from vendors"
+  },
+  {
+    "documentType": "receipt",
+    "keywords": ["receipt", "paid", "transaction", "thank you for your purchase", "payment received", "confirmation"],
+    "description": "Payment receipts and confirmations"
+  },
+  {
+    "documentType": "contract",
+    "keywords": ["agreement", "terms and conditions", "hereby", "parties agree", "effective date", "signatures"],
+    "description": "Contracts, agreements, and legal documents"
+  },
+  {
+    "documentType": "statement",
+    "keywords": ["statement", "account summary", "balance", "period ending", "opening balance", "closing balance"],
+    "description": "Account and financial statements"
+  },
+  {
+    "documentType": "tax_form",
+    "keywords": ["w-9", "w-2", "1099", "tax return", "ein", "taxpayer identification"],
+    "description": "Tax forms and related documents"
+  }
+]

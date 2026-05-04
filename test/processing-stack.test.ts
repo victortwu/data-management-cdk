@@ -1,17 +1,18 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { IngestionStack } from '../lib/ingestion-stack';
-import { ProcessingStack } from '../lib/processing-stack';
+import { DataMgmtIngestionStack } from '../lib/ingestion-stack';
+import { DataMgmtProcessingStack } from '../lib/processing-stack';
 
 const createStacks = () => {
   const app = new cdk.App();
-  const ingestion = new IngestionStack(app, 'IngestionStack-Test', {
+  const ingestion = new DataMgmtIngestionStack(app, 'Test-DataMgmtIngestionStack', {
     stage: { stageName: 'Test' },
   });
-  const processing = new ProcessingStack(app, 'ProcessingStack-Test', {
+  const processing = new DataMgmtProcessingStack(app, 'Test-DataMgmtProcessingStack', {
     stage: { stageName: 'Test' },
     landingBucket: ingestion.landingBucket,
     ingestionQueue: ingestion.ingestionQueue,
+    ingestionEncryptionKey: ingestion.encryptionKey,
   });
   return { ingestion, processing, template: Template.fromStack(processing) };
 }
@@ -23,7 +24,7 @@ describe('Processed Bucket', () => {
       VersioningConfiguration: { Status: 'Enabled' },
       BucketEncryption: {
         ServerSideEncryptionConfiguration: [
-          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'aws:kms' } },
         ],
       },
       PublicAccessBlockConfiguration: {
@@ -161,6 +162,38 @@ describe('Classification Config Table', () => {
   test('creates exactly 2 DynamoDB tables', () => {
     const { template } = createStacks();
     template.resourceCountIs('AWS::DynamoDB::Table', 2);
+  });
+});
+
+describe('KMS Encryption', () => {
+  test('creates a KMS key with rotation enabled', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::KMS::Key', {
+      EnableKeyRotation: true,
+    });
+  });
+
+  test('creates exactly 1 KMS key', () => {
+    const { template } = createStacks();
+    template.resourceCountIs('AWS::KMS::Key', 1);
+  });
+
+  test('SQS queues use KMS encryption', () => {
+    const { template } = createStacks();
+    const queues = template.findResources('AWS::SQS::Queue');
+    const allEncrypted = Object.values(queues).every(
+      (q: any) => q.Properties.KmsMasterKeyId !== undefined,
+    );
+    expect(allEncrypted).toBe(true);
+  });
+
+  test('DynamoDB tables use customer-managed KMS', () => {
+    const { template } = createStacks();
+    const tables = template.findResources('AWS::DynamoDB::Table');
+    const allEncrypted = Object.values(tables).every(
+      (t: any) => t.Properties.SSESpecification?.SSEEnabled === true,
+    );
+    expect(allEncrypted).toBe(true);
   });
 });
 

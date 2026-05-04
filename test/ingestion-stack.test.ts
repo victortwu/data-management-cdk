@@ -1,11 +1,11 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { IngestionStack } from '../lib/ingestion-stack';
+import { DataMgmtIngestionStack } from '../lib/ingestion-stack';
 import { stages } from '../lib/config';
 
 const createStack = (stageName = 'Beta'): cdk.Stack => {
   const app = new cdk.App();
-  return new IngestionStack(app, `IngestionStack-${stageName}`, {
+  return new DataMgmtIngestionStack(app, `${stageName}-DataMgmtIngestionStack`, {
     stage: { stageName },
   });
 }
@@ -14,12 +14,12 @@ describe('Stage configuration', () => {
   test('creates one stack per stage', () => {
     const app = new cdk.App();
     const stacks = stages.map(
-      (stage) => new IngestionStack(app, `IngestionStack-${stage.stageName}`, { stage })
+      (stage) => new DataMgmtIngestionStack(app, `${stage.stageName}-DataMgmtIngestionStack`, { stage })
     );
 
     expect(stacks).toHaveLength(2);
-    expect(stacks[0].stackName).toBe('IngestionStack-Beta');
-    expect(stacks[1].stackName).toBe('IngestionStack-Prod');
+    expect(stacks[0].stackName).toBe('Beta-DataMgmtIngestionStack');
+    expect(stacks[1].stackName).toBe('Prod-DataMgmtIngestionStack');
   });
 });
 
@@ -31,12 +31,12 @@ describe('S3 Landing Bucket', () => {
     });
   });
 
-  test('uses S3-managed encryption', () => {
+  test('uses KMS encryption', () => {
     const template = Template.fromStack(createStack());
     template.hasResourceProperties('AWS::S3::Bucket', {
       BucketEncryption: {
         ServerSideEncryptionConfiguration: [
-          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'aws:kms' } },
         ],
       },
     });
@@ -119,6 +119,29 @@ describe('SQS Ingestion Queue', () => {
   test('creates exactly 2 queues', () => {
     const template = Template.fromStack(createStack());
     template.resourceCountIs('AWS::SQS::Queue', 2);
+  });
+});
+
+describe('KMS Encryption', () => {
+  test('creates a KMS key with rotation enabled', () => {
+    const template = Template.fromStack(createStack());
+    template.hasResourceProperties('AWS::KMS::Key', {
+      EnableKeyRotation: true,
+    });
+  });
+
+  test('creates exactly 1 KMS key', () => {
+    const template = Template.fromStack(createStack());
+    template.resourceCountIs('AWS::KMS::Key', 1);
+  });
+
+  test('SQS queues use KMS encryption', () => {
+    const template = Template.fromStack(createStack());
+    const queues = template.findResources('AWS::SQS::Queue');
+    const allEncrypted = Object.values(queues).every(
+      (q: any) => q.Properties.KmsMasterKeyId !== undefined,
+    );
+    expect(allEncrypted).toBe(true);
   });
 });
 
