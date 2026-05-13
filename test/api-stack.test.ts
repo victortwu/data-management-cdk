@@ -27,6 +27,7 @@ const createStacks = () => {
     processingEncryptionKey: processing.encryptionKey,
     documentTable: processing.documentTable,
     classificationConfigTable: processing.classificationConfigTable,
+    vendorConfigTable: processing.vendorConfigTable,
     userPool: auth.userPool,
     userPoolClient: auth.userPoolClient,
   });
@@ -45,9 +46,9 @@ describe('API Gateway', () => {
     });
   });
 
-  test('has 7 routes (5 paths, some with multiple methods)', () => {
+  test('has 11 routes (7 paths, some with multiple methods)', () => {
     const { template } = createStacks();
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 7);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
   });
 
   test('all routes have an authorizer', () => {
@@ -103,10 +104,24 @@ describe('Classifications Lambda', () => {
   });
 });
 
-describe('Lambda Functions', () => {
-  test('creates exactly 3 Lambda functions', () => {
+describe('Vendors Lambda', () => {
+  test('exists with correct environment variables', () => {
     const { template } = createStacks();
-    template.resourceCountIs('AWS::Lambda::Function', 3);
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs20.x',
+      Environment: {
+        Variables: Match.objectLike({
+          VENDOR_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+  });
+});
+
+describe('Lambda Functions', () => {
+  test('creates exactly 4 Lambda functions', () => {
+    const { template } = createStacks();
+    template.resourceCountIs('AWS::Lambda::Function', 4);
   });
 
   test('all Lambdas use Node.js 20', () => {

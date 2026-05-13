@@ -159,9 +159,19 @@ describe('Classification Config Table', () => {
     });
   });
 
-  test('creates exactly 2 DynamoDB tables', () => {
+  test('creates exactly 3 DynamoDB tables', () => {
     const { template } = createStacks();
-    template.resourceCountIs('AWS::DynamoDB::Table', 2);
+    template.resourceCountIs('AWS::DynamoDB::Table', 3);
+  });
+});
+
+describe('Vendor Config Table', () => {
+  test('has vendorId partition key and on-demand billing', () => {
+    const { template } = createStacks();
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      KeySchema: [{ AttributeName: 'vendorId', KeyType: 'HASH' }],
+      BillingMode: 'PAY_PER_REQUEST',
+    });
   });
 });
 
@@ -230,6 +240,7 @@ describe('Processing Lambda', () => {
           PROCESSED_BUCKET: Match.anyValue(),
           DOCUMENT_TABLE: Match.anyValue(),
           CLASSIFICATION_TABLE: Match.anyValue(),
+          VENDOR_TABLE: Match.anyValue(),
         }),
       },
     });

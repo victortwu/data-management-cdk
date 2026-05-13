@@ -20,6 +20,7 @@ export interface DataMgmtApiStackProps extends cdk.StackProps {
   processingEncryptionKey: kms.Key;
   documentTable: dynamodb.Table;
   classificationConfigTable: dynamodb.Table;
+  vendorConfigTable: dynamodb.Table;
   userPool: cognito.UserPool;
   userPoolClient: cognito.UserPoolClient;
 }
@@ -80,16 +81,31 @@ export class DataMgmtApiStack extends cdk.Stack {
     props.classificationConfigTable.grantReadWriteData(classificationsLambda);
     props.processingEncryptionKey.grantDecrypt(classificationsLambda);
 
+    // Vendors Lambda
+    const vendorsLambda = new lambda.NodejsFunction(this, 'VendorsLambda', {
+      entry: path.join(__dirname, '..', 'lambdas', 'vendors', 'index.ts'),
+      handler: 'handler',
+      runtime: lambdaBase.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      environment: { VENDOR_TABLE: props.vendorConfigTable.tableName },
+    });
+    props.vendorConfigTable.grantReadWriteData(vendorsLambda);
+    props.processingEncryptionKey.grantDecrypt(vendorsLambda);
+
     // Routes
     const uploadIntegration = new apigwv2Int.HttpLambdaIntegration('UploadInt', uploadLambda);
     const documentsIntegration = new apigwv2Int.HttpLambdaIntegration('DocumentsInt', documentsLambda);
     const classificationsIntegration = new apigwv2Int.HttpLambdaIntegration('ClassificationsInt', classificationsLambda);
+    const vendorsIntegration = new apigwv2Int.HttpLambdaIntegration('VendorsInt', vendorsLambda);
 
     this.api.addRoutes({ path: '/upload', methods: [apigwv2.HttpMethod.POST], integration: uploadIntegration, authorizer });
     this.api.addRoutes({ path: '/documents', methods: [apigwv2.HttpMethod.GET], integration: documentsIntegration, authorizer });
     this.api.addRoutes({ path: '/documents/{id}', methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH], integration: documentsIntegration, authorizer });
     this.api.addRoutes({ path: '/classifications', methods: [apigwv2.HttpMethod.GET], integration: classificationsIntegration, authorizer });
+    this.api.addRoutes({ path: '/classifications/stats', methods: [apigwv2.HttpMethod.GET], integration: documentsIntegration, authorizer });
     this.api.addRoutes({ path: '/classifications/{documentType}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: classificationsIntegration, authorizer });
+    this.api.addRoutes({ path: '/vendors', methods: [apigwv2.HttpMethod.GET], integration: vendorsIntegration, authorizer });
+    this.api.addRoutes({ path: '/vendors/{vendorId}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: vendorsIntegration, authorizer });
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint });
   }

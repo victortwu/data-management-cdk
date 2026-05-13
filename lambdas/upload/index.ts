@@ -1,6 +1,6 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { APIGatewayProxyHandlerV2 } from 'aws-lambda';
+import { APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda';
 import { randomUUID } from 'crypto';
 
 const s3 = new S3Client({});
@@ -19,7 +19,7 @@ const respond = (statusCode: number, body: Record<string, unknown>) => ({
   body: JSON.stringify(body),
 });
 
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) => {
   const body = JSON.parse(event.body ?? '{}');
   const files: FileRequest[] = body.files;
 

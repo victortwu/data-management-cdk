@@ -27,6 +27,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
   public readonly archiveDlq: sqs.Queue;
   public readonly documentTable: dynamodb.Table;
   public readonly classificationConfigTable: dynamodb.Table;
+  public readonly vendorConfigTable: dynamodb.Table;
   public readonly encryptionKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
@@ -127,6 +128,14 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    this.vendorConfigTable = new dynamodb.Table(this, 'VendorConfig', {
+      partitionKey: { name: 'vendorId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+      encryptionKey: this.encryptionKey,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     const archiveLambda = new lambda.NodejsFunction(this, 'ArchiveLambda', {
       entry: path.join(__dirname, '..', 'lambdas', 'archive', 'index.ts'),
       handler: 'handler',
@@ -152,6 +161,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
         PROCESSED_BUCKET: this.processedBucket.bucketName,
         DOCUMENT_TABLE: this.documentTable.tableName,
         CLASSIFICATION_TABLE: this.classificationConfigTable.tableName,
+        VENDOR_TABLE: this.vendorConfigTable.tableName,
       },
     });
 
@@ -159,6 +169,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
     this.processedBucket.grantWrite(processingLambda);
     this.documentTable.grantWriteData(processingLambda);
     this.classificationConfigTable.grantReadData(processingLambda);
+    this.vendorConfigTable.grantReadData(processingLambda);
     props.ingestionEncryptionKey.grantDecrypt(processingLambda);
     processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
       actions: ['textract:DetectDocumentText'],

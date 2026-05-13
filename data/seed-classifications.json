@@ -1,27 +1,55 @@
 [
   {
-    "documentType": "invoice",
-    "keywords": ["invoice", "amount due", "bill to", "payment terms", "net 30", "remit to", "invoice number"],
-    "description": "Invoices and bills from vendors"
+    "documentType": "financial",
+    "description": "Financial documents including invoices, receipts, statements, and estimates",
+    "keywords": ["invoice", "amount due", "bill to", "payment terms", "receipt", "paid", "transaction", "payment received", "statement", "account summary", "balance", "estimate", "quote", "proposed", "remit to", "net 30", "subtotal", "total due"],
+    "subTypes": {
+      "invoice": ["invoice", "invoice number", "amount due", "bill to", "remit to", "net 30", "payment terms"],
+      "receipt": ["receipt", "paid", "payment received", "transaction", "thank you for your purchase", "confirmation"],
+      "statement": ["statement", "account summary", "balance", "period ending", "opening balance", "closing balance"],
+      "estimate": ["estimate", "quote", "valid until", "proposed", "scope of work"]
+    }
   },
   {
-    "documentType": "receipt",
-    "keywords": ["receipt", "paid", "transaction", "thank you for your purchase", "payment received", "confirmation"],
-    "description": "Payment receipts and confirmations"
+    "documentType": "tax",
+    "description": "Tax forms, returns, and related documents",
+    "keywords": ["w-9", "w-2", "1099", "tax return", "ein", "taxpayer identification", "irs", "tax year", "withholding", "gross income"],
+    "subTypes": {
+      "w2": ["w-2", "wage and tax statement", "employer identification"],
+      "1099": ["1099", "nonemployee compensation", "miscellaneous income"],
+      "return": ["tax return", "adjusted gross income", "taxable income", "filing status"],
+      "notice": ["notice", "irs", "tax due", "penalty", "assessment"]
+    }
   },
   {
-    "documentType": "contract",
-    "keywords": ["agreement", "terms and conditions", "hereby", "parties agree", "effective date", "signatures"],
-    "description": "Contracts, agreements, and legal documents"
+    "documentType": "legal",
+    "description": "Contracts, agreements, permits, and legal notices",
+    "keywords": ["agreement", "terms and conditions", "hereby", "parties agree", "effective date", "signatures", "contract", "license", "permit", "pursuant to"],
+    "subTypes": {
+      "contract": ["contract", "agreement", "parties agree", "effective date", "term of agreement"],
+      "agreement": ["terms and conditions", "hereby", "mutual agreement", "binding"],
+      "notice": ["notice", "compliance", "violation", "deadline", "pursuant to"],
+      "permit": ["license number", "permit", "expiration", "issued by", "renewal"]
+    }
   },
   {
-    "documentType": "statement",
-    "keywords": ["statement", "account summary", "balance", "period ending", "opening balance", "closing balance"],
-    "description": "Account and financial statements"
+    "documentType": "insurance",
+    "description": "Insurance policies, claims, and renewal documents",
+    "keywords": ["policy number", "coverage", "premium", "deductible", "insured", "claim", "renewal", "liability", "endorsement"],
+    "subTypes": {
+      "policy": ["policy number", "coverage", "insured", "effective date", "declarations"],
+      "claim": ["claim", "claim number", "loss", "incident", "adjuster"],
+      "renewal": ["renewal", "premium", "renewal date", "policy period"]
+    }
   },
   {
-    "documentType": "tax_form",
-    "keywords": ["w-9", "w-2", "1099", "tax return", "ein", "taxpayer identification"],
-    "description": "Tax forms and related documents"
+    "documentType": "correspondence",
+    "description": "General business letters, memos, and notifications",
+    "keywords": ["dear", "sincerely", "regarding", "to whom it may concern", "re:", "attention", "memo", "notification"],
+    "subTypes": {
+      "letter": ["dear", "sincerely", "regards", "to whom it may concern"],
+      "memo": ["memo", "memorandum", "from:", "subject:"],
+      "notification": ["notification", "notice", "alert", "important update", "action required"]
+    }
   }
 ]

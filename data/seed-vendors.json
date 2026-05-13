@@ -1,0 +1,27 @@
+[
+  {
+    "vendorId": "city-of-seattle",
+    "displayName": "City of Seattle",
+    "aliases": ["city of seattle", "seattle city light", "seattle public utilities", "seattle municipal"]
+  },
+  {
+    "vendorId": "wa-dept-revenue",
+    "displayName": "Washington State Dept of Revenue",
+    "aliases": ["washington state department of revenue", "wa dept of revenue", "washington department of revenue", "wa dor"]
+  },
+  {
+    "vendorId": "liberty-mutual",
+    "displayName": "Liberty Mutual",
+    "aliases": ["liberty mutual", "liberty mutual insurance", "liberty mutual group", "liberty mutual fire insurance"]
+  },
+  {
+    "vendorId": "irs",
+    "displayName": "Internal Revenue Service",
+    "aliases": ["internal revenue service", "irs", "department of the treasury"]
+  },
+  {
+    "vendorId": "usps",
+    "displayName": "United States Postal Service",
+    "aliases": ["united states postal service", "usps", "us postal service"]
+  }
+]

@@ -26,6 +26,7 @@ for (const stage of stages) {
     processingEncryptionKey: processing.encryptionKey,
     documentTable: processing.documentTable,
     classificationConfigTable: processing.classificationConfigTable,
+    vendorConfigTable: processing.vendorConfigTable,
     userPool: auth.userPool,
     userPoolClient: auth.userPoolClient,
   });

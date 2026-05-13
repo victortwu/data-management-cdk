@@ -128,13 +128,55 @@ const patchDocument = async (id: string, event: Parameters<APIGatewayProxyHandle
   });
 
   if (!result) return respond(404, { error: 'NOT_FOUND', message: 'Document not found' });
-  return respond(200, result.Attributes);
+  return respond(200, result.Attributes as Record<string, unknown>);
+};
+
+const getClassificationStats = async () => {
+  const byType: Record<string, { count: number; subTypes: Record<string, number> }> = {};
+  let unclassified = 0;
+  const byVendor: Record<string, number> = {};
+  let unmatchedVendors = 0;
+
+  let lastKey: Record<string, any> | undefined;
+  do {
+    const result = await ddb.send(new ScanCommand({
+      TableName: DOCUMENT_TABLE,
+      ProjectionExpression: 'documentType, subType, vendorName',
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    for (const item of result.Items ?? []) {
+      const docType = item.documentType as string | undefined;
+      if (!docType || docType === 'unknown') {
+        unclassified++;
+      } else {
+        if (!byType[docType]) byType[docType] = { count: 0, subTypes: {} };
+        byType[docType].count++;
+        const sub = item.subType as string | undefined;
+        if (sub) byType[docType].subTypes[sub] = (byType[docType].subTypes[sub] ?? 0) + 1;
+      }
+      const vendor = item.vendorName as string | undefined;
+      if (vendor) byVendor[vendor] = (byVendor[vendor] ?? 0) + 1;
+      else unmatchedVendors++;
+    }
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  return respond(200, {
+    byType: Object.entries(byType).map(([type, data]) => ({ type, ...data })),
+    unclassified,
+    byVendor: Object.entries(byVendor)
+      .map(([vendor, count]) => ({ vendor, count }))
+      .sort((a, b) => b.count - a.count),
+    unmatchedVendors,
+  });
 };
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const method = event.requestContext.http.method;
   const id = event.pathParameters?.id;
+  const path = event.rawPath;
 
+  if (method === 'GET' && path.endsWith('/classifications/stats')) return getClassificationStats();
   if (method === 'GET' && !id) return listDocuments(event);
   if (method === 'GET' && id) return getDocument(id);
   if (method === 'PATCH' && id) return patchDocument(id, event);
