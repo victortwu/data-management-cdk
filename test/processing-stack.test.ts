@@ -252,7 +252,7 @@ describe('Processing Lambda', () => {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: 'textract:DetectDocumentText',
+            Action: ['textract:DetectDocumentText', 'textract:StartDocumentTextDetection', 'textract:GetDocumentTextDetection'],
             Effect: 'Allow',
           }),
         ]),

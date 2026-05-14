@@ -8,6 +8,8 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
 const DOCUMENT_TABLE = process.env.DOCUMENT_TABLE!;
 const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET!;
+const CLASSIFICATION_TABLE = process.env.CLASSIFICATION_TABLE!;
+const VENDOR_TABLE = process.env.VENDOR_TABLE!;
 const URL_EXPIRY_SECONDS = 900;
 
 const respond = (statusCode: number, body: Record<string, unknown>) => ({
@@ -171,12 +173,102 @@ const getClassificationStats = async () => {
   });
 };
 
+const reprocessDocuments = async () => {
+  const configItems = await ddb.send(new ScanCommand({ TableName: CLASSIFICATION_TABLE }));
+  const vendorItems = await ddb.send(new ScanCommand({ TableName: VENDOR_TABLE }));
+  const configs = configItems.Items ?? [];
+  const vendors = vendorItems.Items ?? [];
+
+  let processed = 0;
+  let failed = 0;
+  let lastKey: Record<string, any> | undefined;
+
+  do {
+    const result = await ddb.send(new ScanCommand({
+      TableName: DOCUMENT_TABLE,
+      ProjectionExpression: 'documentId, extractedTextUri, detectedOrganizations',
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+
+    for (const doc of result.Items ?? []) {
+      try {
+        const textUri = doc.extractedTextUri as string | undefined;
+        if (!textUri) { failed++; continue; }
+
+        const textKey = textUri.replace(/^s3:\/\/[^/]+\//, '');
+        const resp = await s3.send(new GetObjectCommand({ Bucket: PROCESSED_BUCKET, Key: textKey }));
+        const text = await resp.Body!.transformToString();
+        const lowerText = text.toLowerCase();
+
+        // Classify
+        let bestType = 'unknown', bestSubType: string | undefined, bestKeywords: string[] = [], bestScore = 0;
+        for (const item of configs) {
+          const keywords = (item.keywords as string[]) ?? [];
+          const matched = keywords.filter((kw) => lowerText.includes(kw.toLowerCase()));
+          if (matched.length === 0) continue;
+          const score = matched.length / keywords.length;
+          if (score > bestScore) {
+            bestScore = score;
+            bestType = item.documentType as string;
+            bestKeywords = matched;
+            const subTypes = (item.subTypes as Record<string, string[]>) ?? {};
+            let bestSubScore = 0;
+            bestSubType = undefined;
+            for (const [name, subKws] of Object.entries(subTypes)) {
+              const subMatched = subKws.filter((kw) => lowerText.includes(kw.toLowerCase()));
+              const subScore = subMatched.length / subKws.length;
+              if (subScore > bestSubScore) { bestSubScore = subScore; bestSubType = name; }
+            }
+          }
+        }
+
+        // Normalize vendor
+        const orgs = (doc.detectedOrganizations as string[]) ?? [];
+        const lowerOrgs = orgs.map((o) => o.toLowerCase());
+        let vendorName: string | undefined, vendorDisplay: string | undefined;
+        for (const vendor of vendors) {
+          const aliases = (vendor.aliases as string[]) ?? [];
+          if (aliases.some((alias) => lowerOrgs.some((org) => org.includes(alias.toLowerCase())))) {
+            vendorName = vendor.vendorId as string;
+            vendorDisplay = vendor.displayName as string;
+            break;
+          }
+        }
+
+        await ddb.send(new UpdateCommand({
+          TableName: DOCUMENT_TABLE,
+          Key: { documentId: doc.documentId },
+          UpdateExpression: 'SET documentType = :dt, subType = :st, matchedKeywords = :mk, matchedScore = :ms, vendorName = :vn, vendorDisplay = :vd, #s = :status, tags = :tags REMOVE reviewReason',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: {
+            ':dt': bestType,
+            ':st': bestSubType ?? null,
+            ':mk': bestKeywords,
+            ':ms': bestScore,
+            ':vn': vendorName ?? orgs[0] ?? null,
+            ':vd': vendorDisplay ?? null,
+            ':status': bestType === 'unknown' ? 'needs_review' : 'processed',
+            ':tags': [bestType, bestSubType, vendorName].filter(Boolean),
+          },
+        }));
+        processed++;
+      } catch {
+        failed++;
+      }
+    }
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  return respond(200, { message: 'Reprocessing complete', processed, failed });
+};
+
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const method = event.requestContext.http.method;
   const id = event.pathParameters?.id;
   const path = event.rawPath;
 
   if (method === 'GET' && path.endsWith('/classifications/stats')) return getClassificationStats();
+  if (method === 'POST' && path.endsWith('/documents/reprocess')) return reprocessDocuments();
   if (method === 'GET' && !id) return listDocuments(event);
   if (method === 'GET' && id) return getDocument(id);
   if (method === 'PATCH' && id) return patchDocument(id, event);

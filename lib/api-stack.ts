@@ -60,14 +60,18 @@ export class DataMgmtApiStack extends cdk.Stack {
       entry: path.join(__dirname, '..', 'lambdas', 'documents', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
-      timeout: cdk.Duration.seconds(30),
+      timeout: cdk.Duration.seconds(60),
       environment: {
         DOCUMENT_TABLE: props.documentTable.tableName,
         PROCESSED_BUCKET: props.processedBucket.bucketName,
+        CLASSIFICATION_TABLE: props.classificationConfigTable.tableName,
+        VENDOR_TABLE: props.vendorConfigTable.tableName,
       },
     });
     props.documentTable.grantReadWriteData(documentsLambda);
     props.processedBucket.grantRead(documentsLambda);
+    props.classificationConfigTable.grantReadData(documentsLambda);
+    props.vendorConfigTable.grantReadData(documentsLambda);
     props.processingEncryptionKey.grantDecrypt(documentsLambda);
 
     // Classifications Lambda
@@ -100,6 +104,7 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     this.api.addRoutes({ path: '/upload', methods: [apigwv2.HttpMethod.POST], integration: uploadIntegration, authorizer });
     this.api.addRoutes({ path: '/documents', methods: [apigwv2.HttpMethod.GET], integration: documentsIntegration, authorizer });
+    this.api.addRoutes({ path: '/documents/reprocess', methods: [apigwv2.HttpMethod.POST], integration: documentsIntegration, authorizer });
     this.api.addRoutes({ path: '/documents/{id}', methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH], integration: documentsIntegration, authorizer });
     this.api.addRoutes({ path: '/classifications', methods: [apigwv2.HttpMethod.GET], integration: classificationsIntegration, authorizer });
     this.api.addRoutes({ path: '/classifications/stats', methods: [apigwv2.HttpMethod.GET], integration: documentsIntegration, authorizer });

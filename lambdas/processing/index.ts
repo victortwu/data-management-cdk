@@ -1,5 +1,5 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { TextractClient, DetectDocumentTextCommand } from '@aws-sdk/client-textract';
+import { TextractClient, DetectDocumentTextCommand, StartDocumentTextDetectionCommand, GetDocumentTextDetectionCommand } from '@aws-sdk/client-textract';
 import { ComprehendClient, DetectEntitiesCommand } from '@aws-sdk/client-comprehend';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
@@ -86,7 +86,38 @@ startxref
   return Buffer.from(stream);
 };
 
-const extractTextWithTextract = async (fileBytes: Buffer): Promise<string> => {
+const extractTextWithTextract = async (fileBytes: Buffer, s3Bucket?: string, s3Key?: string): Promise<string> => {
+  // Use async S3-based API for PDFs (supports multi-page), sync Bytes for images
+  if (s3Bucket && s3Key) {
+    const { JobId } = await textract.send(new StartDocumentTextDetectionCommand({
+      DocumentLocation: { S3Object: { Bucket: s3Bucket, Name: s3Key } },
+    }));
+
+    let status = 'IN_PROGRESS';
+    while (status === 'IN_PROGRESS') {
+      await new Promise((r) => setTimeout(r, 1000));
+      const job = await textract.send(new GetDocumentTextDetectionCommand({ JobId }));
+      status = job.JobStatus ?? 'FAILED';
+      if (status === 'SUCCEEDED') {
+        const lines: string[] = [];
+        let nextToken = job.NextToken;
+        for (const block of job.Blocks ?? []) {
+          if (block.BlockType === 'LINE') lines.push(block.Text ?? '');
+        }
+        while (nextToken) {
+          const next = await textract.send(new GetDocumentTextDetectionCommand({ JobId, NextToken: nextToken }));
+          for (const block of next.Blocks ?? []) {
+            if (block.BlockType === 'LINE') lines.push(block.Text ?? '');
+          }
+          nextToken = next.NextToken;
+        }
+        return lines.join('\n');
+      }
+      if (status === 'FAILED') throw new Error('Textract async job failed');
+    }
+    return '';
+  }
+
   const resp = await textract.send(new DetectDocumentTextCommand({
     Document: { Bytes: fileBytes },
   }));
@@ -158,7 +189,7 @@ const normalizeVendor = async (organizations: string[]): Promise<VendorResult | 
 
   for (const vendor of vendorItems.Items ?? []) {
     const aliases = (vendor.aliases as string[]) ?? [];
-    if (aliases.some((alias) => lowerOrgs.some((org) => org.includes(alias) || alias.includes(org)))) {
+    if (aliases.some((alias) => lowerOrgs.some((org) => org.includes(alias.toLowerCase())))) {
       return { vendorName: vendor.vendorId as string, vendorDisplay: vendor.displayName as string };
     }
   }
@@ -206,6 +237,8 @@ const processDocument = async (
     extractedText = preExtractedText;
   } else if (fileType === 'csv' || fileType === 'excel') {
     extractedText = fileBytes.toString('utf-8');
+  } else if (fileType === 'pdf') {
+    extractedText = await extractTextWithTextract(fileBytes, PROCESSED_BUCKET, originalUri);
   } else {
     extractedText = await extractTextWithTextract(fileBytes);
   }

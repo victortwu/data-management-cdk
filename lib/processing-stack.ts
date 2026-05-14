@@ -166,13 +166,13 @@ export class DataMgmtProcessingStack extends cdk.Stack {
     });
 
     props.landingBucket.grantRead(processingLambda);
-    this.processedBucket.grantWrite(processingLambda);
+    this.processedBucket.grantReadWrite(processingLambda);
     this.documentTable.grantWriteData(processingLambda);
     this.classificationConfigTable.grantReadData(processingLambda);
     this.vendorConfigTable.grantReadData(processingLambda);
     props.ingestionEncryptionKey.grantDecrypt(processingLambda);
     processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
-      actions: ['textract:DetectDocumentText'],
+      actions: ['textract:DetectDocumentText', 'textract:StartDocumentTextDetection', 'textract:GetDocumentTextDetection'],
       resources: ['*'],
     }));
     processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({

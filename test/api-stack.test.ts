@@ -46,9 +46,9 @@ describe('API Gateway', () => {
     });
   });
 
-  test('has 11 routes (7 paths, some with multiple methods)', () => {
+  test('has 12 routes (8 paths, some with multiple methods)', () => {
     const { template } = createStacks();
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 12);
   });
 
   test('all routes have an authorizer', () => {
