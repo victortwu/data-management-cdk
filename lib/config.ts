@@ -1,8 +1,5 @@
 export interface StageConfig {
-  stageName: string;
+  stageName: string
 }
 
-export const stages: StageConfig[] = [
-  { stageName: 'Beta' },
-  { stageName: 'Prod' },
-];
+export const stages: StageConfig[] = [{ stageName: 'Beta' }, { stageName: 'Prod' }]

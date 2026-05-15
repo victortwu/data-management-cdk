@@ -1,25 +1,25 @@
-import * as cdk from 'aws-cdk-lib';
-import { Template, Match } from 'aws-cdk-lib/assertions';
-import { DataMgmtIngestionStack } from '../lib/ingestion-stack';
-import { DataMgmtProcessingStack } from '../lib/processing-stack';
+import * as cdk from 'aws-cdk-lib'
+import { Template, Match } from 'aws-cdk-lib/assertions'
+import { DataMgmtIngestionStack } from '../lib/ingestion-stack'
+import { DataMgmtProcessingStack } from '../lib/processing-stack'
 
 const createStacks = () => {
-  const app = new cdk.App();
+  const app = new cdk.App()
   const ingestion = new DataMgmtIngestionStack(app, 'Test-DataMgmtIngestionStack', {
     stage: { stageName: 'Test' },
-  });
+  })
   const processing = new DataMgmtProcessingStack(app, 'Test-DataMgmtProcessingStack', {
     stage: { stageName: 'Test' },
     landingBucket: ingestion.landingBucket,
     ingestionQueue: ingestion.ingestionQueue,
     ingestionEncryptionKey: ingestion.encryptionKey,
-  });
-  return { ingestion, processing, template: Template.fromStack(processing) };
+  })
+  return { ingestion, processing, template: Template.fromStack(processing) }
 }
 
 describe('Processed Bucket', () => {
   test('exists with correct config', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::S3::Bucket', {
       VersioningConfiguration: { Status: 'Enabled' },
       BucketEncryption: {
@@ -33,13 +33,13 @@ describe('Processed Bucket', () => {
         IgnorePublicAcls: true,
         RestrictPublicBuckets: true,
       },
-    });
-  });
-});
+    })
+  })
+})
 
 describe('Glacier Bucket', () => {
   test('has Glacier transition lifecycle rule', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::S3::Bucket', {
       LifecycleConfiguration: {
         Rules: Match.arrayWith([
@@ -50,53 +50,51 @@ describe('Glacier Bucket', () => {
           }),
         ]),
       },
-    });
-  });
-});
+    })
+  })
+})
 
 describe('Archive Queue', () => {
   test('has DLQ with maxReceiveCount of 3', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::SQS::Queue', {
       VisibilityTimeout: 300,
       RedrivePolicy: { maxReceiveCount: 3 },
-    });
-  });
+    })
+  })
 
   test('DLQ has 14-day retention', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::SQS::Queue', {
       MessageRetentionPeriod: 1209600,
-    });
-  });
-});
+    })
+  })
+})
 
 describe('Archive EventBridge Rule', () => {
   test('routes S3 Object Created events to archive queue', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::Events::Rule', {
       EventPattern: {
         source: ['aws.s3'],
         'detail-type': ['Object Created'],
       },
-      Targets: Match.arrayWith([
-        Match.objectLike({ Arn: Match.anyValue() }),
-      ]),
-    });
-  });
-});
+      Targets: Match.arrayWith([Match.objectLike({ Arn: Match.anyValue() })]),
+    })
+  })
+})
 
 describe('Document Metadata Table', () => {
   test('has documentId partition key and on-demand billing', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       KeySchema: [{ AttributeName: 'documentId', KeyType: 'HASH' }],
       BillingMode: 'PAY_PER_REQUEST',
-    });
-  });
+    })
+  })
 
   test('has ByType GSI', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
@@ -107,11 +105,11 @@ describe('Document Metadata Table', () => {
           ],
         }),
       ]),
-    });
-  });
+    })
+  })
 
   test('has ByVendor GSI', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
@@ -122,11 +120,11 @@ describe('Document Metadata Table', () => {
           ],
         }),
       ]),
-    });
-  });
+    })
+  })
 
   test('has ByStatus GSI', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
@@ -137,79 +135,69 @@ describe('Document Metadata Table', () => {
           ],
         }),
       ]),
-    });
-  });
+    })
+  })
 
   test('has RETAIN removal policy', () => {
-    const { template } = createStacks();
-    const tables = template.findResources('AWS::DynamoDB::Table');
+    const { template } = createStacks()
+    const tables = template.findResources('AWS::DynamoDB::Table')
     const metadataTable = Object.values(tables).find((t: any) =>
-      t.Properties.KeySchema.some((k: any) => k.AttributeName === 'documentId')
-    ) as any;
-    expect(metadataTable.DeletionPolicy).toBe('Retain');
-  });
-});
+      t.Properties.KeySchema.some((k: any) => k.AttributeName === 'documentId'),
+    ) as any
+    expect(metadataTable.DeletionPolicy).toBe('Retain')
+  })
+})
 
-describe('Classification Config Table', () => {
-  test('has documentType partition key and on-demand billing', () => {
-    const { template } = createStacks();
+describe('Config Table', () => {
+  test('has pk partition key and on-demand billing', () => {
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
-      KeySchema: [{ AttributeName: 'documentType', KeyType: 'HASH' }],
+      KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
       BillingMode: 'PAY_PER_REQUEST',
-    });
-  });
+    })
+  })
 
-  test('creates exactly 3 DynamoDB tables', () => {
-    const { template } = createStacks();
-    template.resourceCountIs('AWS::DynamoDB::Table', 3);
-  });
-});
-
-describe('Vendor Config Table', () => {
-  test('has vendorId partition key and on-demand billing', () => {
-    const { template } = createStacks();
-    template.hasResourceProperties('AWS::DynamoDB::Table', {
-      KeySchema: [{ AttributeName: 'vendorId', KeyType: 'HASH' }],
-      BillingMode: 'PAY_PER_REQUEST',
-    });
-  });
-});
+  test('creates exactly 2 DynamoDB tables', () => {
+    const { template } = createStacks()
+    template.resourceCountIs('AWS::DynamoDB::Table', 2)
+  })
+})
 
 describe('KMS Encryption', () => {
   test('creates a KMS key with rotation enabled', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::KMS::Key', {
       EnableKeyRotation: true,
-    });
-  });
+    })
+  })
 
   test('creates exactly 1 KMS key', () => {
-    const { template } = createStacks();
-    template.resourceCountIs('AWS::KMS::Key', 1);
-  });
+    const { template } = createStacks()
+    template.resourceCountIs('AWS::KMS::Key', 1)
+  })
 
   test('SQS queues use KMS encryption', () => {
-    const { template } = createStacks();
-    const queues = template.findResources('AWS::SQS::Queue');
+    const { template } = createStacks()
+    const queues = template.findResources('AWS::SQS::Queue')
     const allEncrypted = Object.values(queues).every(
       (q: any) => q.Properties.KmsMasterKeyId !== undefined,
-    );
-    expect(allEncrypted).toBe(true);
-  });
+    )
+    expect(allEncrypted).toBe(true)
+  })
 
   test('DynamoDB tables use customer-managed KMS', () => {
-    const { template } = createStacks();
-    const tables = template.findResources('AWS::DynamoDB::Table');
+    const { template } = createStacks()
+    const tables = template.findResources('AWS::DynamoDB::Table')
     const allEncrypted = Object.values(tables).every(
       (t: any) => t.Properties.SSESpecification?.SSEEnabled === true,
-    );
-    expect(allEncrypted).toBe(true);
-  });
-});
+    )
+    expect(allEncrypted).toBe(true)
+  })
+})
 
 describe('Archive Lambda', () => {
   test('exists with Node.js 20 runtime', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs20.x',
       Environment: {
@@ -217,20 +205,20 @@ describe('Archive Lambda', () => {
           GLACIER_BUCKET: Match.anyValue(),
         }),
       },
-    });
-  });
+    })
+  })
 
   test('has SQS event source from archive queue', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
       EventSourceArn: Match.anyValue(),
-    });
-  });
-});
+    })
+  })
+})
 
 describe('Processing Lambda', () => {
   test('exists with correct environment variables', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs20.x',
       MemorySize: 512,
@@ -239,43 +227,46 @@ describe('Processing Lambda', () => {
         Variables: Match.objectLike({
           PROCESSED_BUCKET: Match.anyValue(),
           DOCUMENT_TABLE: Match.anyValue(),
-          CLASSIFICATION_TABLE: Match.anyValue(),
-          VENDOR_TABLE: Match.anyValue(),
+          CONFIG_TABLE: Match.anyValue(),
         }),
       },
-    });
-  });
+    })
+  })
 
   test('has Textract permissions', () => {
-    const { template } = createStacks();
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: ['textract:DetectDocumentText', 'textract:StartDocumentTextDetection', 'textract:GetDocumentTextDetection'],
+            Action: [
+              'textract:DetectDocumentText',
+              'textract:StartDocumentTextDetection',
+              'textract:GetDocumentTextDetection',
+            ],
             Effect: 'Allow',
           }),
         ]),
       },
-    });
-  });
+    })
+  })
 
-  test('has Comprehend permissions', () => {
-    const { template } = createStacks();
+  test('has Bedrock permissions', () => {
+    const { template } = createStacks()
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: 'comprehend:DetectEntities',
+            Action: 'bedrock:InvokeModel',
             Effect: 'Allow',
           }),
         ]),
       },
-    });
-  });
+    })
+  })
 
   test('has 2 event source mappings (archive + processing)', () => {
-    const { template } = createStacks();
-    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 2);
-  });
-});
+    const { template } = createStacks()
+    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 2)
+  })
+})

@@ -1,0 +1,74 @@
+[
+  {
+    "pk": "TYPE#financial",
+    "label": "Financial",
+    "subTypes": {
+      "invoice": ["invoice", "bill", "amount due", "payment due", "remit"],
+      "receipt": ["receipt", "paid", "transaction", "confirmation"],
+      "statement": ["statement", "balance", "account summary"],
+      "estimate": ["estimate", "quote", "proposal"]
+    }
+  },
+  {
+    "pk": "TYPE#tax",
+    "label": "Tax",
+    "subTypes": {
+      "w2": ["w-2", "w2", "wages", "employer"],
+      "1099": ["1099", "nonemployee", "miscellaneous income"],
+      "return": ["tax return", "1040", "filing"],
+      "notice": ["notice", "assessment", "adjustment"]
+    }
+  },
+  {
+    "pk": "TYPE#legal",
+    "label": "Legal",
+    "subTypes": {
+      "contract": ["contract", "agreement", "terms", "parties"],
+      "notice": ["legal notice", "summons", "complaint"],
+      "filing": ["court", "case number", "filing"]
+    }
+  },
+  {
+    "pk": "TYPE#insurance",
+    "label": "Insurance",
+    "subTypes": {
+      "policy": ["policy", "coverage", "premium", "insured"],
+      "claim": ["claim", "incident", "adjuster"],
+      "renewal": ["renewal", "expiration", "effective date"]
+    }
+  },
+  {
+    "pk": "TYPE#correspondence",
+    "label": "Correspondence",
+    "subTypes": {
+      "letter": ["dear", "sincerely", "regards"],
+      "memo": ["memo", "memorandum", "re:"],
+      "notification": ["notification", "alert", "important"]
+    }
+  },
+  {
+    "pk": "VENDOR#irs",
+    "label": "Internal Revenue Service",
+    "aliases": ["irs", "internal revenue service", "department of the treasury"]
+  },
+  {
+    "pk": "VENDOR#city-of-seattle",
+    "label": "City of Seattle",
+    "aliases": ["city of seattle", "seattle municipal"]
+  },
+  {
+    "pk": "VENDOR#wa-dor",
+    "label": "WA Dept of Revenue",
+    "aliases": ["washington department of revenue", "wa dept of revenue", "wa dor"]
+  },
+  {
+    "pk": "VENDOR#liberty-mutual",
+    "label": "Liberty Mutual",
+    "aliases": ["liberty mutual", "libertymutual"]
+  },
+  {
+    "pk": "VENDOR#usps",
+    "label": "USPS",
+    "aliases": ["usps", "united states postal service", "u.s. postal service"]
+  }
+]

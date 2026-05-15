@@ -1,50 +1,52 @@
-import * as cdk from 'aws-cdk-lib';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
-import * as kms from 'aws-cdk-lib/aws-kms';
-import * as iam from 'aws-cdk-lib/aws-iam';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
-import * as lambdaBase from 'aws-cdk-lib/aws-lambda';
-import * as sqsSources from 'aws-cdk-lib/aws-lambda-event-sources';
-import { Construct } from 'constructs';
-import { StageConfig } from './config';
-import * as path from 'path';
+import * as cdk from 'aws-cdk-lib'
+import * as s3 from 'aws-cdk-lib/aws-s3'
+import * as sqs from 'aws-cdk-lib/aws-sqs'
+import * as kms from 'aws-cdk-lib/aws-kms'
+import * as iam from 'aws-cdk-lib/aws-iam'
+import * as events from 'aws-cdk-lib/aws-events'
+import * as targets from 'aws-cdk-lib/aws-events-targets'
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs'
+import * as lambdaBase from 'aws-cdk-lib/aws-lambda'
+import * as sqsSources from 'aws-cdk-lib/aws-lambda-event-sources'
+import { Construct } from 'constructs'
+import { StageConfig } from './config'
+import * as path from 'path'
 
 export interface ProcessingStackProps extends cdk.StackProps {
-  stage: StageConfig;
-  landingBucket: s3.Bucket;
-  ingestionQueue: sqs.Queue;
-  ingestionEncryptionKey: kms.Key;
+  stage: StageConfig
+  landingBucket: s3.Bucket
+  ingestionQueue: sqs.Queue
+  ingestionEncryptionKey: kms.Key
 }
 
 export class DataMgmtProcessingStack extends cdk.Stack {
-  public readonly processedBucket: s3.Bucket;
-  public readonly glacierBucket: s3.Bucket;
-  public readonly archiveQueue: sqs.Queue;
-  public readonly archiveDlq: sqs.Queue;
-  public readonly documentTable: dynamodb.Table;
-  public readonly classificationConfigTable: dynamodb.Table;
-  public readonly vendorConfigTable: dynamodb.Table;
-  public readonly encryptionKey: kms.Key;
+  public readonly processedBucket: s3.Bucket
+  public readonly glacierBucket: s3.Bucket
+  public readonly archiveQueue: sqs.Queue
+  public readonly archiveDlq: sqs.Queue
+  public readonly documentTable: dynamodb.Table
+  public readonly configTable: dynamodb.Table
+  public readonly classificationConfigTable: dynamodb.Table
+  public readonly vendorConfigTable: dynamodb.Table
+  public readonly encryptionKey: kms.Key
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
-    super(scope, id, props);
+    super(scope, id, props)
 
     this.encryptionKey = new kms.Key(this, 'ProcessingKey', {
       enableKeyRotation: true,
       description: `Processing stack encryption key (${props.stage.stageName})`,
       alias: `processing-${props.stage.stageName.toLowerCase()}`,
-    });
+    })
 
-    // Allow EventBridge to use the key for SQS message delivery
-    this.encryptionKey.addToResourcePolicy(new iam.PolicyStatement({
-      principals: [new iam.ServicePrincipal('events.amazonaws.com')],
-      actions: ['kms:Decrypt', 'kms:GenerateDataKey'],
-      resources: ['*'],
-    }));
+    this.encryptionKey.addToResourcePolicy(
+      new iam.PolicyStatement({
+        principals: [new iam.ServicePrincipal('events.amazonaws.com')],
+        actions: ['kms:Decrypt', 'kms:GenerateDataKey'],
+        resources: ['*'],
+      }),
+    )
 
     this.processedBucket = new s3.Bucket(this, 'ProcessedBucket', {
       versioned: true,
@@ -53,7 +55,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    })
 
     this.glacierBucket = new s3.Bucket(this, 'GlacierBucket', {
       encryption: s3.BucketEncryption.KMS,
@@ -61,18 +63,22 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      lifecycleRules: [{
-        transitions: [{
-          storageClass: s3.StorageClass.GLACIER_INSTANT_RETRIEVAL,
-          transitionAfter: cdk.Duration.days(0),
-        }],
-      }],
-    });
+      lifecycleRules: [
+        {
+          transitions: [
+            {
+              storageClass: s3.StorageClass.GLACIER_INSTANT_RETRIEVAL,
+              transitionAfter: cdk.Duration.days(0),
+            },
+          ],
+        },
+      ],
+    })
 
     this.archiveDlq = new sqs.Queue(this, 'ArchiveDlq', {
       retentionPeriod: cdk.Duration.days(14),
       encryptionMasterKey: this.encryptionKey,
-    });
+    })
 
     this.archiveQueue = new sqs.Queue(this, 'ArchiveQueue', {
       visibilityTimeout: cdk.Duration.seconds(300),
@@ -81,7 +87,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
         queue: this.archiveDlq,
         maxReceiveCount: 3,
       },
-    });
+    })
 
     new events.Rule(this, 'S3ObjectCreatedArchiveRule', {
       eventPattern: {
@@ -92,41 +98,64 @@ export class DataMgmtProcessingStack extends cdk.Stack {
         },
       },
       targets: [new targets.SqsQueue(this.archiveQueue)],
-    });
+    })
 
+    // Document metadata table with GSIs
     this.documentTable = new dynamodb.Table(this, 'DocumentMetadata', {
       partitionKey: { name: 'documentId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.encryptionKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    })
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByType',
       partitionKey: { name: 'documentType', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
-    });
+    })
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByVendor',
       partitionKey: { name: 'vendorName', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
-    });
+    })
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByStatus',
       partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
-    });
+    })
 
+    this.documentTable.addGlobalSecondaryIndex({
+      indexName: 'ByDate',
+      partitionKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
+    })
+
+    this.documentTable.addGlobalSecondaryIndex({
+      indexName: 'BySource',
+      partitionKey: { name: 'source', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
+    })
+
+    // Unified config table (TYPE#, VENDOR#, STATUS# items)
+    this.configTable = new dynamodb.Table(this, 'ConfigTable', {
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+      encryptionKey: this.encryptionKey,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    })
+
+    // Legacy tables — retained for migration, no longer referenced by new code
     this.classificationConfigTable = new dynamodb.Table(this, 'ClassificationConfig', {
       partitionKey: { name: 'documentType', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.encryptionKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    })
 
     this.vendorConfigTable = new dynamodb.Table(this, 'VendorConfig', {
       partitionKey: { name: 'vendorId', type: dynamodb.AttributeType.STRING },
@@ -134,8 +163,9 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.encryptionKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    })
 
+    // Archive Lambda
     const archiveLambda = new lambda.NodejsFunction(this, 'ArchiveLambda', {
       entry: path.join(__dirname, '..', 'lambdas', 'archive', 'index.ts'),
       handler: 'handler',
@@ -144,13 +174,14 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       environment: {
         GLACIER_BUCKET: this.glacierBucket.bucketName,
       },
-    });
+    })
 
-    props.landingBucket.grantRead(archiveLambda);
-    this.glacierBucket.grantWrite(archiveLambda);
-    props.ingestionEncryptionKey.grantDecrypt(archiveLambda);
-    archiveLambda.addEventSource(new sqsSources.SqsEventSource(this.archiveQueue));
+    props.landingBucket.grantRead(archiveLambda)
+    this.glacierBucket.grantWrite(archiveLambda)
+    props.ingestionEncryptionKey.grantDecrypt(archiveLambda)
+    archiveLambda.addEventSource(new sqsSources.SqsEventSource(this.archiveQueue))
 
+    // Processing Lambda
     const processingLambda = new lambda.NodejsFunction(this, 'ProcessingLambda', {
       entry: path.join(__dirname, '..', 'lambdas', 'processing', 'index.ts'),
       handler: 'handler',
@@ -160,25 +191,34 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       environment: {
         PROCESSED_BUCKET: this.processedBucket.bucketName,
         DOCUMENT_TABLE: this.documentTable.tableName,
-        CLASSIFICATION_TABLE: this.classificationConfigTable.tableName,
-        VENDOR_TABLE: this.vendorConfigTable.tableName,
+        CONFIG_TABLE: this.configTable.tableName,
       },
-    });
+    })
 
-    props.landingBucket.grantRead(processingLambda);
-    this.processedBucket.grantReadWrite(processingLambda);
-    this.documentTable.grantWriteData(processingLambda);
-    this.classificationConfigTable.grantReadData(processingLambda);
-    this.vendorConfigTable.grantReadData(processingLambda);
-    props.ingestionEncryptionKey.grantDecrypt(processingLambda);
-    processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
-      actions: ['textract:DetectDocumentText', 'textract:StartDocumentTextDetection', 'textract:GetDocumentTextDetection'],
-      resources: ['*'],
-    }));
-    processingLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
-      actions: ['comprehend:DetectEntities'],
-      resources: ['*'],
-    }));
-    processingLambda.addEventSource(new sqsSources.SqsEventSource(props.ingestionQueue));
+    props.landingBucket.grantRead(processingLambda)
+    this.processedBucket.grantReadWrite(processingLambda)
+    this.documentTable.grantWriteData(processingLambda)
+    this.configTable.grantReadData(processingLambda)
+    props.ingestionEncryptionKey.grantDecrypt(processingLambda)
+
+    processingLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'textract:DetectDocumentText',
+          'textract:StartDocumentTextDetection',
+          'textract:GetDocumentTextDetection',
+        ],
+        resources: ['*'],
+      }),
+    )
+
+    processingLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: ['*'],
+      }),
+    )
+
+    processingLambda.addEventSource(new sqsSources.SqsEventSource(props.ingestionQueue))
   }
 }
