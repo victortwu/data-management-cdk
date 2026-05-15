@@ -18,9 +18,14 @@ const respond = (statusCode: number, body: Record<string, unknown>) => ({
   body: JSON.stringify(body),
 });
 
+const presignInline = async (uri: string): Promise<string> => {
+  const key = uri.replace(/^s3:\/\/[^/]+\//, '');
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: PROCESSED_BUCKET, Key: key, ResponseContentDisposition: 'inline', ResponseContentType: 'application/pdf' }), { expiresIn: URL_EXPIRY_SECONDS });
+};
+
 const presignDownload = async (uri: string): Promise<string> => {
   const key = uri.replace(/^s3:\/\/[^/]+\//, '');
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: PROCESSED_BUCKET, Key: key }), { expiresIn: URL_EXPIRY_SECONDS });
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: PROCESSED_BUCKET, Key: key, ResponseContentDisposition: 'attachment' }), { expiresIn: URL_EXPIRY_SECONDS });
 };
 
 const listDocuments = async (event: Parameters<APIGatewayProxyHandlerV2>[0]) => {
@@ -91,13 +96,17 @@ const getDocument = async (id: string) => {
   if (!result.Item) return respond(404, { error: 'NOT_FOUND', message: 'Document not found' });
 
   const doc = result.Item;
+  const previewUrls = {
+    original: doc.originalUri ? await presignInline(doc.originalUri) : null,
+    convertedPdf: doc.convertedPdfUri ? await presignInline(doc.convertedPdfUri) : null,
+  };
   const downloadUrls = {
     original: doc.originalUri ? await presignDownload(doc.originalUri) : null,
     convertedPdf: doc.convertedPdfUri ? await presignDownload(doc.convertedPdfUri) : null,
     extractedText: doc.extractedTextUri ? await presignDownload(doc.extractedTextUri) : null,
   };
 
-  return respond(200, { ...doc, downloadUrls });
+  return respond(200, { ...doc, previewUrls, downloadUrls });
 };
 
 const patchDocument = async (id: string, event: Parameters<APIGatewayProxyHandlerV2>[0]) => {
