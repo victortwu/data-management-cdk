@@ -97,6 +97,7 @@ const processDocument = async (
     vendorName: analysis.vendorName,
     contactName: analysis.contactName,
     amounts: analysis.amounts,
+    description: analysis.description,
     confidence: analysis.confidence,
     tags: [analysis.documentType, analysis.subType, analysis.vendorName].filter(
       Boolean,

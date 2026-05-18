@@ -54,6 +54,7 @@ export const analyzeWithBedrock = async (
     documentDate: parsed.documentDate,
     contactName: parsed.contactName,
     amounts: parsed.amounts,
+    description: parsed.description,
     confidence: parsed.confidence ?? 'medium',
     flagReason: parsed.flagReason,
   }

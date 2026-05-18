@@ -22,6 +22,7 @@ export interface DocumentRecord {
   vendorDisplay?: string
   contactName?: string
   amounts?: string[]
+  description?: string
   tags?: string[]
   confidence?: 'high' | 'medium' | 'low'
   sourceEmailId?: string
@@ -34,6 +35,7 @@ export interface BedrockAnalysisResult {
   documentDate?: string
   contactName?: string
   amounts?: string[]
+  description?: string
   confidence: 'high' | 'medium' | 'low'
   flagReason?: string
 }

@@ -10,7 +10,11 @@ export const buildBedrockPrompt = async (ddb: DynamoDBDocumentClient): Promise<s
     .filter((i) => i.pk.startsWith('TYPE#'))
     .map((i) => {
       const name = i.pk.replace('TYPE#', '')
-      const subs = i.subTypes ? Object.keys(i.subTypes).join(', ') : 'none'
+      const subs = i.subTypes
+        ? Object.entries(i.subTypes)
+            .map(([sub, keywords]) => `${sub} [hints: ${keywords.join(', ')}]`)
+            .join('; ')
+        : 'none'
       return `- ${name} (subTypes: ${subs})`
     })
     .join('\n')
@@ -26,11 +30,12 @@ export const buildBedrockPrompt = async (ddb: DynamoDBDocumentClient): Promise<s
   return `You are a document classification and metadata extraction system. Analyze the provided document text and return a JSON object with the following fields:
 
 - documentType: one of the known types below, or "unknown" if none fit
-- subType: a subtype if applicable
+- subType: a subtype from the matched type. Use the hint keywords to guide your choice — if the vendor/sender matches a subType hint, prefer that subType.
 - vendorName: the vendor ID from the known vendors list if the document is from/about one of them, otherwise the organization name
 - documentDate: the primary date of the document in ISO 8601 format (YYYY-MM-DD). This is typically the date the document was issued, not dates mentioned in the body.
 - contactName: the primary person's name associated with the document
 - amounts: array of monetary amounts found (e.g., ["$1,234.56"])
+- description: a single sentence summarizing what this document is and its purpose
 - confidence: "high" if you are certain about documentType and vendorName, "medium" if somewhat certain, "low" if guessing
 - flagReason: if confidence is "low" or "medium", briefly explain why
 
@@ -45,5 +50,6 @@ Rules:
 - For documentDate, prefer dates near the top of the document (letterhead area)
 - For vendorName, identify who SENT or ISSUED the document, not who it was sent to
 - If the document doesn't clearly match a known vendor, use the organization name as-is
+- For subType, prioritize matching the vendor/sender against subType hint keywords over generic terms found in the document body
 - Normalize amounts to USD format with dollar sign`
 }
