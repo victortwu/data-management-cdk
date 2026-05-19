@@ -10,7 +10,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as lambdaBase from 'aws-cdk-lib/aws-lambda'
 import * as sqsSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Construct } from 'constructs'
-import { StageConfig } from './config'
+import { StageConfig } from '../../config'
 import * as path from 'path'
 
 export interface ProcessingStackProps extends cdk.StackProps {
@@ -167,7 +167,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
 
     // Archive Lambda
     const archiveLambda = new lambda.NodejsFunction(this, 'ArchiveLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'archive', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'archive', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(60),
@@ -183,7 +183,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
 
     // Processing Lambda
     const processingLambda = new lambda.NodejsFunction(this, 'ProcessingLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'processing', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'processing', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(5),

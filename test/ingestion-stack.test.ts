@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import { Template, Match } from 'aws-cdk-lib/assertions'
-import { DataMgmtIngestionStack } from '../lib/ingestion-stack'
-import { stages } from '../lib/config'
+import { DataMgmtIngestionStack } from '../lib/stacks/ingestion-stack'
+import { stages } from '../config'
 
 const createStack = (stageName = 'Beta'): cdk.Stack => {
   const app = new cdk.App()

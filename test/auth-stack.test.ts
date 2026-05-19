@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib'
 import { Template, Match } from 'aws-cdk-lib/assertions'
-import { DataMgmtAuthStack } from '../lib/auth-stack'
+import { DataMgmtAuthStack } from '../lib/stacks/auth-stack'
 
 const createStack = (stageName = 'Beta') => {
   const app = new cdk.App()

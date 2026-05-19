@@ -1,9 +1,9 @@
 import * as cdk from 'aws-cdk-lib'
 import { Template, Match } from 'aws-cdk-lib/assertions'
-import { DataMgmtIngestionStack } from '../lib/ingestion-stack'
-import { DataMgmtProcessingStack } from '../lib/processing-stack'
-import { DataMgmtApiStack } from '../lib/api-stack'
-import { DataMgmtAuthStack } from '../lib/auth-stack'
+import { DataMgmtIngestionStack } from '../lib/stacks/ingestion-stack'
+import { DataMgmtProcessingStack } from '../lib/stacks/processing-stack'
+import { DataMgmtApiStack } from '../lib/stacks/api-stack'
+import { DataMgmtAuthStack } from '../lib/stacks/auth-stack'
 
 const createStacks = () => {
   const app = new cdk.App()

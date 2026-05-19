@@ -9,7 +9,7 @@ import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2'
 import * as apigwv2Auth from 'aws-cdk-lib/aws-apigatewayv2-authorizers'
 import * as apigwv2Int from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import { Construct } from 'constructs'
-import { StageConfig } from './config'
+import { StageConfig } from '../../config'
 import * as path from 'path'
 
 export interface DataMgmtApiStackProps extends cdk.StackProps {
@@ -57,7 +57,7 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     // Upload Lambda
     const uploadLambda = new lambda.NodejsFunction(this, 'UploadLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'upload', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'upload', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
@@ -68,7 +68,7 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     // Documents Lambda
     const documentsLambda = new lambda.NodejsFunction(this, 'DocumentsLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'documents', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'documents', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(60),
@@ -85,7 +85,7 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     // Classifications Lambda (operates on config table TYPE# items)
     const classificationsLambda = new lambda.NodejsFunction(this, 'ClassificationsLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'classifications', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'classifications', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
@@ -96,7 +96,7 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     // Vendors Lambda (operates on config table VENDOR# items)
     const vendorsLambda = new lambda.NodejsFunction(this, 'VendorsLambda', {
-      entry: path.join(__dirname, '..', 'lambdas', 'vendors', 'index.ts'),
+      entry: path.join(__dirname, '..', '..', 'lambdas', 'vendors', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),

@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
 import { Construct } from 'constructs'
-import { StageConfig } from './config'
+import { StageConfig } from '../../config'
 
 export interface DataMgmtAuthStackProps extends cdk.StackProps {
   stage: StageConfig

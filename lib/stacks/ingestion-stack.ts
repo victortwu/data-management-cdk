@@ -6,7 +6,7 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as targets from 'aws-cdk-lib/aws-events-targets'
 import { Construct } from 'constructs'
-import { StageConfig } from './config'
+import { StageConfig } from '../../config'
 
 export interface IngestionStackProps extends cdk.StackProps {
   stage: StageConfig
