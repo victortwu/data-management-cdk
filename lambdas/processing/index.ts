@@ -8,7 +8,8 @@ import { randomUUID } from 'crypto'
 import { PROCESSED_BUCKET, DOCUMENT_TABLE, MIN_EMAIL_BODY_LENGTH } from './constants'
 import type { DocumentRecord, DocumentStatus } from './types'
 import { detectFileType } from './utils/detectFileType'
-import { textToPdfBytes } from './utils/textToPdfBytes'
+import { textToPdf } from './utils/textToPdf'
+import { imageToPdf } from './utils/imageToPdf'
 import { extractTextWithTextract } from './utils/extractTextWithTextract'
 import { createLlmAdapter } from './adapters'
 import { buildBedrockPrompt } from './utils/buildBedrockPrompt'
@@ -61,9 +62,11 @@ const processDocument = async (
   if (fileType === 'pdf') {
     pdfBytes = fileBytes
   } else if (fileType === 'image') {
-    pdfBytes = fileBytes
+    pdfBytes = await imageToPdf(fileBytes, fileType)
+  } else if (fileType === 'csv' || fileType === 'excel') {
+    pdfBytes = await textToPdf(fileBytes.toString('utf-8'))
   } else {
-    pdfBytes = textToPdfBytes(`[Converted from ${fileType} — original preserved]`)
+    pdfBytes = await textToPdf(fileBytes.toString('utf-8'))
   }
 
   const convertedPdfUri = `${prefix}/converted.pdf`
@@ -138,7 +141,7 @@ const processEmail = async (
 
   const bodyText = parsed.text ?? ''
   if (bodyText.length >= MIN_EMAIL_BODY_LENGTH) {
-    const bodyPdfBytes = textToPdfBytes(bodyText)
+    const bodyPdfBytes = await textToPdf(bodyText)
     await processDocument(tenantId, bodyPdfBytes, originalKey, 'pdf', 'email', systemPrompt, emailId, bodyText)
   }
 

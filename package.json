@@ -34,6 +34,7 @@
   "dependencies": {
     "aws-cdk-lib": "2.251.0",
     "constructs": "^10.0.0",
-    "mailparser": "^3.9.8"
+    "mailparser": "^3.9.8",
+    "pdf-lib": "^1.17.1"
   }
 }
