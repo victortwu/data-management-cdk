@@ -1,12 +1,22 @@
 import * as cdk from 'aws-cdk-lib'
 import { Template, Match } from 'aws-cdk-lib/assertions'
 import { DataMgmtAuthStack } from '../lib/stacks/auth-stack'
+import { DataMgmtIngestionStack } from '../lib/stacks/ingestion-stack'
+import { DataMgmtProcessingStack } from '../lib/stacks/processing-stack'
 
-const createStack = (stageName = 'Beta') => {
+const createStack = (stageName = 'Test') => {
   const app = new cdk.App()
+  const ingestion = new DataMgmtIngestionStack(app, `${stageName}-DataMgmtIngestionStack`, {
+    stage: { stageName },
+  })
+  const processing = new DataMgmtProcessingStack(app, `${stageName}-DataMgmtProcessingStack`, {
+    stage: { stageName },
+  })
+  processing.addDependency(ingestion)
   const stack = new DataMgmtAuthStack(app, `${stageName}-DataMgmtAuthStack`, {
     stage: { stageName },
   })
+  stack.addDependency(processing)
   return { stack, template: Template.fromStack(stack) }
 }
 

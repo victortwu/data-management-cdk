@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as targets from 'aws-cdk-lib/aws-events-targets'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
@@ -15,25 +16,42 @@ import * as path from 'path'
 
 export interface ProcessingStackProps extends cdk.StackProps {
   stage: StageConfig
-  landingBucket: s3.Bucket
-  ingestionQueue: sqs.Queue
-  ingestionEncryptionKey: kms.Key
 }
 
 export class DataMgmtProcessingStack extends cdk.Stack {
   public readonly processedBucket: s3.Bucket
   public readonly glacierBucket: s3.Bucket
-  public readonly archiveQueue: sqs.Queue
-  public readonly archiveDlq: sqs.Queue
   public readonly documentTable: dynamodb.Table
   public readonly configTable: dynamodb.Table
-  public readonly classificationConfigTable: dynamodb.Table
-  public readonly vendorConfigTable: dynamodb.Table
   public readonly encryptionKey: kms.Key
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props)
 
+    const prefix = `/${props.stage.stageName}/datamgmt`
+
+    // Import ingestion resources via SSM
+    const landingBucketArn = ssm.StringParameter.valueForStringParameter(
+      this, `${prefix}/landing-bucket-arn`,
+    )
+    const landingBucketName = ssm.StringParameter.valueForStringParameter(
+      this, `${prefix}/landing-bucket-name`,
+    )
+    const ingestionKeyArn = ssm.StringParameter.valueForStringParameter(
+      this, `${prefix}/ingestion-key-arn`,
+    )
+    const ingestionQueueArn = ssm.StringParameter.valueForStringParameter(
+      this, `${prefix}/ingestion-queue-arn`,
+    )
+
+    const landingBucket = s3.Bucket.fromBucketAttributes(this, 'LandingBucket', {
+      bucketArn: landingBucketArn,
+      bucketName: landingBucketName,
+    })
+    const ingestionKey = kms.Key.fromKeyArn(this, 'IngestionKey', ingestionKeyArn)
+    const ingestionQueue = sqs.Queue.fromQueueArn(this, 'IngestionQueue', ingestionQueueArn)
+
+    // Encryption key
     this.encryptionKey = new kms.Key(this, 'ProcessingKey', {
       enableKeyRotation: true,
       description: `Processing stack encryption key (${props.stage.stageName})`,
@@ -48,6 +66,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       }),
     )
 
+    // Processed bucket
     this.processedBucket = new s3.Bucket(this, 'ProcessedBucket', {
       versioned: true,
       encryption: s3.BucketEncryption.KMS,
@@ -57,6 +76,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     })
 
+    // Glacier bucket
     this.glacierBucket = new s3.Bucket(this, 'GlacierBucket', {
       encryption: s3.BucketEncryption.KMS,
       encryptionKey: this.encryptionKey,
@@ -75,34 +95,31 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       ],
     })
 
-    this.archiveDlq = new sqs.Queue(this, 'ArchiveDlq', {
+    // Archive queue
+    const archiveDlq = new sqs.Queue(this, 'ArchiveDlq', {
       retentionPeriod: cdk.Duration.days(14),
       encryptionMasterKey: this.encryptionKey,
     })
 
-    this.archiveQueue = new sqs.Queue(this, 'ArchiveQueue', {
+    const archiveQueue = new sqs.Queue(this, 'ArchiveQueue', {
       visibilityTimeout: cdk.Duration.seconds(300),
       encryptionMasterKey: this.encryptionKey,
-      deadLetterQueue: {
-        queue: this.archiveDlq,
-        maxReceiveCount: 3,
-      },
+      deadLetterQueue: { queue: archiveDlq, maxReceiveCount: 3 },
     })
 
     new events.Rule(this, 'S3ObjectCreatedArchiveRule', {
       eventPattern: {
         source: ['aws.s3'],
         detailType: ['Object Created'],
-        detail: {
-          bucket: { name: [props.landingBucket.bucketName] },
-        },
+        detail: { bucket: { name: [landingBucketName] } },
       },
-      targets: [new targets.SqsQueue(this.archiveQueue)],
+      targets: [new targets.SqsQueue(archiveQueue)],
     })
 
-    // Document metadata table with GSIs
+    // Document metadata table (multi-tenant: PK=tenantId, SK=documentId)
     this.documentTable = new dynamodb.Table(this, 'DocumentMetadata', {
-      partitionKey: { name: 'documentId', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'documentId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.encryptionKey,
@@ -111,54 +128,26 @@ export class DataMgmtProcessingStack extends cdk.Stack {
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByType',
-      partitionKey: { name: 'documentType', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'typeDate', type: dynamodb.AttributeType.STRING },
     })
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByVendor',
-      partitionKey: { name: 'vendorName', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'vendorDate', type: dynamodb.AttributeType.STRING },
     })
 
     this.documentTable.addGlobalSecondaryIndex({
       indexName: 'ByStatus',
-      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'statusDate', type: dynamodb.AttributeType.STRING },
     })
 
-    this.documentTable.addGlobalSecondaryIndex({
-      indexName: 'ByDate',
-      partitionKey: { name: 'documentDate', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
-    })
-
-    this.documentTable.addGlobalSecondaryIndex({
-      indexName: 'BySource',
-      partitionKey: { name: 'source', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
-    })
-
-    // Unified config table (TYPE#, VENDOR#, STATUS# items)
+    // Config table (multi-tenant: PK=tenantId, SK=configKey)
     this.configTable = new dynamodb.Table(this, 'ConfigTable', {
-      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
-      encryptionKey: this.encryptionKey,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    })
-
-    // Legacy tables — retained for migration, no longer referenced by new code
-    this.classificationConfigTable = new dynamodb.Table(this, 'ClassificationConfig', {
-      partitionKey: { name: 'documentType', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
-      encryptionKey: this.encryptionKey,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    })
-
-    this.vendorConfigTable = new dynamodb.Table(this, 'VendorConfig', {
-      partitionKey: { name: 'vendorId', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.encryptionKey,
@@ -176,10 +165,10 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       },
     })
 
-    props.landingBucket.grantRead(archiveLambda)
+    landingBucket.grantRead(archiveLambda)
     this.glacierBucket.grantWrite(archiveLambda)
-    props.ingestionEncryptionKey.grantDecrypt(archiveLambda)
-    archiveLambda.addEventSource(new sqsSources.SqsEventSource(this.archiveQueue))
+    ingestionKey.grantDecrypt(archiveLambda)
+    archiveLambda.addEventSource(new sqsSources.SqsEventSource(archiveQueue))
 
     // Processing Lambda
     const processingLambda = new lambda.NodejsFunction(this, 'ProcessingLambda', {
@@ -188,18 +177,21 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
+      tracing: lambdaBase.Tracing.ACTIVE,
       environment: {
         PROCESSED_BUCKET: this.processedBucket.bucketName,
         DOCUMENT_TABLE: this.documentTable.tableName,
         CONFIG_TABLE: this.configTable.tableName,
+        LLM_PROVIDER: 'bedrock',
+        LLM_MODEL_ID: 'us.amazon.nova-lite-v1:0',
       },
     })
 
-    props.landingBucket.grantRead(processingLambda)
+    landingBucket.grantRead(processingLambda)
     this.processedBucket.grantReadWrite(processingLambda)
-    this.documentTable.grantWriteData(processingLambda)
+    this.documentTable.grantReadWriteData(processingLambda)
     this.configTable.grantReadData(processingLambda)
-    props.ingestionEncryptionKey.grantDecrypt(processingLambda)
+    ingestionKey.grantDecrypt(processingLambda)
 
     processingLambda.addToRolePolicy(
       new iam.PolicyStatement({
@@ -219,6 +211,36 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       }),
     )
 
-    processingLambda.addEventSource(new sqsSources.SqsEventSource(props.ingestionQueue))
+    processingLambda.addEventSource(new sqsSources.SqsEventSource(ingestionQueue))
+
+    // SSM Parameters for cross-stack references
+    new ssm.StringParameter(this, 'ProcessedBucketNameParam', {
+      parameterName: `${prefix}/processed-bucket-name`,
+      stringValue: this.processedBucket.bucketName,
+    })
+    new ssm.StringParameter(this, 'ProcessedBucketArnParam', {
+      parameterName: `${prefix}/processed-bucket-arn`,
+      stringValue: this.processedBucket.bucketArn,
+    })
+    new ssm.StringParameter(this, 'ProcessingKeyArnParam', {
+      parameterName: `${prefix}/processing-key-arn`,
+      stringValue: this.encryptionKey.keyArn,
+    })
+    new ssm.StringParameter(this, 'DocumentTableNameParam', {
+      parameterName: `${prefix}/document-table-name`,
+      stringValue: this.documentTable.tableName,
+    })
+    new ssm.StringParameter(this, 'DocumentTableArnParam', {
+      parameterName: `${prefix}/document-table-arn`,
+      stringValue: this.documentTable.tableArn,
+    })
+    new ssm.StringParameter(this, 'ConfigTableNameParam', {
+      parameterName: `${prefix}/config-table-name`,
+      stringValue: this.configTable.tableName,
+    })
+    new ssm.StringParameter(this, 'ConfigTableArnParam', {
+      parameterName: `${prefix}/config-table-arn`,
+      stringValue: this.configTable.tableArn,
+    })
   }
 }

@@ -1,8 +1,8 @@
-import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { DOCUMENT_TABLE } from '../constants'
 import { respond } from '../../shared/utils/respond'
 
-export const getClassificationStats = async (ddb: DynamoDBDocumentClient) => {
+export const getClassificationStats = async (tenantId: string, ddb: DynamoDBDocumentClient) => {
   const byType: Record<string, { count: number; subTypes: Record<string, number> }> = {}
   let unclassified = 0
   const byVendor: Record<string, number> = {}
@@ -11,8 +11,10 @@ export const getClassificationStats = async (ddb: DynamoDBDocumentClient) => {
   let lastKey: Record<string, any> | undefined
   do {
     const result = await ddb.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: DOCUMENT_TABLE,
+        KeyConditionExpression: 'tenantId = :tid',
+        ExpressionAttributeValues: { ':tid': tenantId },
         ProjectionExpression: 'documentType, subType, vendorName',
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       }),

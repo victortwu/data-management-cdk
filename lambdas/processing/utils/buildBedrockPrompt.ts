@@ -1,15 +1,28 @@
-import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { CONFIG_TABLE } from '../constants'
 import type { ConfigItem } from '../types'
+import { DEFAULT_CONFIG } from '../../post-confirmation/constants/defaultConfig'
 
-export const buildBedrockPrompt = async (ddb: DynamoDBDocumentClient): Promise<string> => {
-  const result = await ddb.send(new ScanCommand({ TableName: CONFIG_TABLE }))
+export const buildBedrockPrompt = async (tenantId: string, ddb: DynamoDBDocumentClient): Promise<string> => {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: CONFIG_TABLE,
+      KeyConditionExpression: 'tenantId = :tid',
+      ExpressionAttributeValues: { ':tid': tenantId },
+    }),
+  )
   const items = (result.Items ?? []) as ConfigItem[]
 
-  const types = items
-    .filter((i) => i.pk.startsWith('TYPE#'))
+  // Fallback to defaults if tenant has no TYPE# config
+  const typeItems = items.filter((i) => i.sk.startsWith('TYPE#'))
+  const effectiveTypes = typeItems.length > 0
+    ? typeItems
+    : (DEFAULT_CONFIG as unknown as ConfigItem[])
+
+  const types = effectiveTypes
+    .filter((i) => i.sk.startsWith('TYPE#'))
     .map((i) => {
-      const name = i.pk.replace('TYPE#', '')
+      const name = i.sk.replace('TYPE#', '')
       const subs = i.subTypes
         ? Object.entries(i.subTypes)
             .map(([sub, keywords]) => `${sub} [hints: ${keywords.join(', ')}]`)
@@ -20,9 +33,9 @@ export const buildBedrockPrompt = async (ddb: DynamoDBDocumentClient): Promise<s
     .join('\n')
 
   const vendors = items
-    .filter((i) => i.pk.startsWith('VENDOR#'))
+    .filter((i) => i.sk.startsWith('VENDOR#'))
     .map((i) => {
-      const id = i.pk.replace('VENDOR#', '')
+      const id = i.sk.replace('VENDOR#', '')
       return `- ${id}: "${i.label}" (aliases: ${i.aliases?.join(', ') ?? 'none'})`
     })
     .join('\n')

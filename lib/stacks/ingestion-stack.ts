@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as targets from 'aws-cdk-lib/aws-events-targets'
 import { Construct } from 'constructs'
@@ -45,6 +46,15 @@ export class DataMgmtIngestionStack extends cdk.Stack {
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       lifecycleRules: [{ expiration: cdk.Duration.days(14) }],
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT],
+          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3600,
+        },
+      ],
     })
 
     this.ingestionDlq = new sqs.Queue(this, 'IngestionDlq', {
@@ -70,6 +80,29 @@ export class DataMgmtIngestionStack extends cdk.Stack {
         },
       },
       targets: [new targets.SqsQueue(this.ingestionQueue)],
+    })
+
+    // SSM Parameters for cross-stack references
+    const prefix = `/${props.stage.stageName}/datamgmt`
+    new ssm.StringParameter(this, 'LandingBucketNameParam', {
+      parameterName: `${prefix}/landing-bucket-name`,
+      stringValue: this.landingBucket.bucketName,
+    })
+    new ssm.StringParameter(this, 'LandingBucketArnParam', {
+      parameterName: `${prefix}/landing-bucket-arn`,
+      stringValue: this.landingBucket.bucketArn,
+    })
+    new ssm.StringParameter(this, 'IngestionKeyArnParam', {
+      parameterName: `${prefix}/ingestion-key-arn`,
+      stringValue: this.encryptionKey.keyArn,
+    })
+    new ssm.StringParameter(this, 'IngestionQueueArnParam', {
+      parameterName: `${prefix}/ingestion-queue-arn`,
+      stringValue: this.ingestionQueue.queueArn,
+    })
+    new ssm.StringParameter(this, 'IngestionQueueUrlParam', {
+      parameterName: `${prefix}/ingestion-queue-url`,
+      stringValue: this.ingestionQueue.queueUrl,
     })
   }
 }

@@ -15,21 +15,14 @@ const createStacks = () => {
   })
   const processing = new DataMgmtProcessingStack(app, 'Test-DataMgmtProcessingStack', {
     stage: { stageName: 'Test' },
-    landingBucket: ingestion.landingBucket,
-    ingestionQueue: ingestion.ingestionQueue,
-    ingestionEncryptionKey: ingestion.encryptionKey,
   })
   const api = new DataMgmtApiStack(app, 'Test-DataMgmtApiStack', {
     stage: { stageName: 'Test' },
-    landingBucket: ingestion.landingBucket,
-    ingestionEncryptionKey: ingestion.encryptionKey,
-    processedBucket: processing.processedBucket,
-    processingEncryptionKey: processing.encryptionKey,
-    documentTable: processing.documentTable,
-    configTable: processing.configTable,
-    userPool: auth.userPool,
-    userPoolClient: auth.userPoolClient,
   })
+  processing.addDependency(ingestion)
+  api.addDependency(auth)
+  api.addDependency(ingestion)
+  api.addDependency(processing)
   return { api, template: Template.fromStack(api) }
 }
 

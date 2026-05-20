@@ -18,9 +18,10 @@ describe('Stage configuration', () => {
         new DataMgmtIngestionStack(app, `${stage.stageName}-DataMgmtIngestionStack`, { stage }),
     )
 
-    expect(stacks).toHaveLength(2)
+    expect(stacks).toHaveLength(3)
     expect(stacks[0].stackName).toBe('Beta-DataMgmtIngestionStack')
-    expect(stacks[1].stackName).toBe('Prod-DataMgmtIngestionStack')
+    expect(stacks[1].stackName).toBe('Gamma-DataMgmtIngestionStack')
+    expect(stacks[2].stackName).toBe('Prod-DataMgmtIngestionStack')
   })
 })
 

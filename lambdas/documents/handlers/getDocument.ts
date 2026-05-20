@@ -4,9 +4,9 @@ import { respond } from '../../shared/utils/respond'
 import { presignInline } from '../utils/presignInline'
 import { presignDownload } from '../utils/presignDownload'
 
-export const getDocument = async (id: string, ddb: DynamoDBDocumentClient) => {
+export const getDocument = async (tenantId: string, id: string, ddb: DynamoDBDocumentClient) => {
   const result = await ddb.send(
-    new GetCommand({ TableName: DOCUMENT_TABLE, Key: { documentId: id } }),
+    new GetCommand({ TableName: DOCUMENT_TABLE, Key: { tenantId, documentId: id } }),
   )
   if (!result.Item) return respond(404, { error: 'NOT_FOUND', message: 'Document not found' })
 

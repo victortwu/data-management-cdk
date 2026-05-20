@@ -5,15 +5,15 @@ import { DataMgmtProcessingStack } from '../lib/stacks/processing-stack'
 
 const createStacks = () => {
   const app = new cdk.App()
+  // Ingestion stack must be created first to write SSM params that processing reads
   const ingestion = new DataMgmtIngestionStack(app, 'Test-DataMgmtIngestionStack', {
     stage: { stageName: 'Test' },
   })
   const processing = new DataMgmtProcessingStack(app, 'Test-DataMgmtProcessingStack', {
     stage: { stageName: 'Test' },
-    landingBucket: ingestion.landingBucket,
-    ingestionQueue: ingestion.ingestionQueue,
-    ingestionEncryptionKey: ingestion.encryptionKey,
   })
+  // Add dependency so SSM params resolve
+  processing.addDependency(ingestion)
   return { ingestion, processing, template: Template.fromStack(processing) }
 }
 
@@ -85,53 +85,56 @@ describe('Archive EventBridge Rule', () => {
 })
 
 describe('Document Metadata Table', () => {
-  test('has documentId partition key and on-demand billing', () => {
+  test('has tenantId partition key, documentId sort key, and on-demand billing', () => {
     const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
-      KeySchema: [{ AttributeName: 'documentId', KeyType: 'HASH' }],
+      KeySchema: [
+        { AttributeName: 'tenantId', KeyType: 'HASH' },
+        { AttributeName: 'documentId', KeyType: 'RANGE' },
+      ],
       BillingMode: 'PAY_PER_REQUEST',
     })
   })
 
-  test('has ByType GSI', () => {
+  test('has ByType GSI with tenantId partition key', () => {
     const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
           IndexName: 'ByType',
           KeySchema: [
-            { AttributeName: 'documentType', KeyType: 'HASH' },
-            { AttributeName: 'documentDate', KeyType: 'RANGE' },
+            { AttributeName: 'tenantId', KeyType: 'HASH' },
+            { AttributeName: 'typeDate', KeyType: 'RANGE' },
           ],
         }),
       ]),
     })
   })
 
-  test('has ByVendor GSI', () => {
+  test('has ByVendor GSI with tenantId partition key', () => {
     const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
           IndexName: 'ByVendor',
           KeySchema: [
-            { AttributeName: 'vendorName', KeyType: 'HASH' },
-            { AttributeName: 'documentDate', KeyType: 'RANGE' },
+            { AttributeName: 'tenantId', KeyType: 'HASH' },
+            { AttributeName: 'vendorDate', KeyType: 'RANGE' },
           ],
         }),
       ]),
     })
   })
 
-  test('has ByStatus GSI', () => {
+  test('has ByStatus GSI with tenantId partition key', () => {
     const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
           IndexName: 'ByStatus',
           KeySchema: [
-            { AttributeName: 'status', KeyType: 'HASH' },
-            { AttributeName: 'uploadedAt', KeyType: 'RANGE' },
+            { AttributeName: 'tenantId', KeyType: 'HASH' },
+            { AttributeName: 'statusDate', KeyType: 'RANGE' },
           ],
         }),
       ]),
@@ -142,6 +145,7 @@ describe('Document Metadata Table', () => {
     const { template } = createStacks()
     const tables = template.findResources('AWS::DynamoDB::Table')
     const metadataTable = Object.values(tables).find((t: any) =>
+      t.Properties.KeySchema.some((k: any) => k.AttributeName === 'tenantId') &&
       t.Properties.KeySchema.some((k: any) => k.AttributeName === 'documentId'),
     ) as any
     expect(metadataTable.DeletionPolicy).toBe('Retain')
@@ -149,17 +153,20 @@ describe('Document Metadata Table', () => {
 })
 
 describe('Config Table', () => {
-  test('has pk partition key and on-demand billing', () => {
+  test('has tenantId partition key, sk sort key, and on-demand billing', () => {
     const { template } = createStacks()
     template.hasResourceProperties('AWS::DynamoDB::Table', {
-      KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+      KeySchema: [
+        { AttributeName: 'tenantId', KeyType: 'HASH' },
+        { AttributeName: 'sk', KeyType: 'RANGE' },
+      ],
       BillingMode: 'PAY_PER_REQUEST',
     })
   })
 
-  test('creates exactly 4 DynamoDB tables', () => {
+  test('creates exactly 2 DynamoDB tables', () => {
     const { template } = createStacks()
-    template.resourceCountIs('AWS::DynamoDB::Table', 4)
+    template.resourceCountIs('AWS::DynamoDB::Table', 2)
   })
 })
 

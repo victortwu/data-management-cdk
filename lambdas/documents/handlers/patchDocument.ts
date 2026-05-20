@@ -1,11 +1,12 @@
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb'
-import { APIGatewayProxyHandlerV2 } from 'aws-lambda'
+import { APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda'
 import { DOCUMENT_TABLE } from '../constants'
 import { respond } from '../../shared/utils/respond'
 
 export const patchDocument = async (
+  tenantId: string,
   id: string,
-  event: Parameters<APIGatewayProxyHandlerV2>[0],
+  event: Parameters<APIGatewayProxyHandlerV2WithJWTAuthorizer>[0],
   ddb: DynamoDBDocumentClient,
 ) => {
   const body = JSON.parse(event.body ?? '{}')
@@ -42,7 +43,7 @@ export const patchDocument = async (
     .send(
       new UpdateCommand({
         TableName: DOCUMENT_TABLE,
-        Key: { documentId: id },
+        Key: { tenantId, documentId: id },
         UpdateExpression: `SET ${parts.join(', ')}`,
         ExpressionAttributeNames: names,
         ExpressionAttributeValues: values,

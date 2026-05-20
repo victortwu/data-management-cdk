@@ -1,8 +1,8 @@
 import * as cdk from 'aws-cdk-lib'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as kms from 'aws-cdk-lib/aws-kms'
+import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
-import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as lambdaBase from 'aws-cdk-lib/aws-lambda'
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2'
@@ -14,18 +14,6 @@ import * as path from 'path'
 
 export interface DataMgmtApiStackProps extends cdk.StackProps {
   stage: StageConfig
-  landingBucket: s3.Bucket
-  ingestionEncryptionKey: kms.Key
-  processedBucket: s3.Bucket
-  processingEncryptionKey: kms.Key
-  documentTable: dynamodb.Table
-  configTable: dynamodb.Table
-  userPool: cognito.UserPool
-  userPoolClient: cognito.UserPoolClient
-  /** @deprecated kept for migration — remove after deploy */
-  classificationConfigTable?: dynamodb.Table
-  /** @deprecated kept for migration — remove after deploy */
-  vendorConfigTable?: dynamodb.Table
 }
 
 export class DataMgmtApiStack extends cdk.Stack {
@@ -33,6 +21,29 @@ export class DataMgmtApiStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props: DataMgmtApiStackProps) {
     super(scope, id, props)
+
+    const prefix = `/${props.stage.stageName}/datamgmt`
+
+    // Import resources via SSM
+    const landingBucketName = ssm.StringParameter.valueForStringParameter(this, `${prefix}/landing-bucket-name`)
+    const landingBucketArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/landing-bucket-arn`)
+    const ingestionKeyArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/ingestion-key-arn`)
+    const processedBucketName = ssm.StringParameter.valueForStringParameter(this, `${prefix}/processed-bucket-name`)
+    const processedBucketArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/processed-bucket-arn`)
+    const processingKeyArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/processing-key-arn`)
+    const documentTableName = ssm.StringParameter.valueForStringParameter(this, `${prefix}/document-table-name`)
+    const documentTableArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/document-table-arn`)
+    const configTableName = ssm.StringParameter.valueForStringParameter(this, `${prefix}/config-table-name`)
+    const configTableArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/config-table-arn`)
+    const userPoolId = ssm.StringParameter.valueForStringParameter(this, `${prefix}/user-pool-id`)
+    const userPoolClientId = ssm.StringParameter.valueForStringParameter(this, `${prefix}/user-pool-client-id`)
+
+    const landingBucket = s3.Bucket.fromBucketAttributes(this, 'LandingBucket', { bucketArn: landingBucketArn, bucketName: landingBucketName })
+    const ingestionKey = kms.Key.fromKeyArn(this, 'IngestionKey', ingestionKeyArn)
+    const processedBucket = s3.Bucket.fromBucketAttributes(this, 'ProcessedBucket', { bucketArn: processedBucketArn, bucketName: processedBucketName })
+    const processingKey = kms.Key.fromKeyArn(this, 'ProcessingKey', processingKeyArn)
+    const documentTable = dynamodb.Table.fromTableArn(this, 'DocumentTable', documentTableArn)
+    const configTable = dynamodb.Table.fromTableArn(this, 'ConfigTable', configTableArn)
 
     // API Gateway
     this.api = new apigwv2.HttpApi(this, 'HttpApi', {
@@ -49,11 +60,10 @@ export class DataMgmtApiStack extends cdk.Stack {
       },
     })
 
-    const authorizer = new apigwv2Auth.HttpJwtAuthorizer(
-      'CognitoAuthorizer',
-      props.userPool.userPoolProviderUrl,
-      { jwtAudience: [props.userPoolClient.userPoolClientId] },
-    )
+    const issuerUrl = `https://cognito-idp.${cdk.Stack.of(this).region}.amazonaws.com/${userPoolId}`
+    const authorizer = new apigwv2Auth.HttpJwtAuthorizer('CognitoAuthorizer', issuerUrl, {
+      jwtAudience: [userPoolClientId],
+    })
 
     // Upload Lambda
     const uploadLambda = new lambda.NodejsFunction(this, 'UploadLambda', {
@@ -61,10 +71,15 @@ export class DataMgmtApiStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      environment: { LANDING_BUCKET: props.landingBucket.bucketName },
+      tracing: lambdaBase.Tracing.ACTIVE,
+      environment: {
+        LANDING_BUCKET: landingBucketName,
+        DOCUMENT_TABLE: documentTableName,
+      },
     })
-    props.landingBucket.grantPut(uploadLambda)
-    props.ingestionEncryptionKey.grantEncrypt(uploadLambda)
+    landingBucket.grantPut(uploadLambda)
+    ingestionKey.grantEncrypt(uploadLambda)
+    documentTable.grantWriteData(uploadLambda)
 
     // Documents Lambda
     const documentsLambda = new lambda.NodejsFunction(this, 'DocumentsLambda', {
@@ -72,120 +87,58 @@ export class DataMgmtApiStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(60),
+      tracing: lambdaBase.Tracing.ACTIVE,
       environment: {
-        DOCUMENT_TABLE: props.documentTable.tableName,
-        PROCESSED_BUCKET: props.processedBucket.bucketName,
-        CONFIG_TABLE: props.configTable.tableName,
+        DOCUMENT_TABLE: documentTableName,
+        PROCESSED_BUCKET: processedBucketName,
+        CONFIG_TABLE: configTableName,
       },
     })
-    props.documentTable.grantReadWriteData(documentsLambda)
-    props.processedBucket.grantRead(documentsLambda)
-    props.configTable.grantReadData(documentsLambda)
-    props.processingEncryptionKey.grantDecrypt(documentsLambda)
+    documentTable.grantReadWriteData(documentsLambda)
+    processedBucket.grantRead(documentsLambda)
+    configTable.grantReadData(documentsLambda)
+    processingKey.grantDecrypt(documentsLambda)
 
-    // Classifications Lambda (operates on config table TYPE# items)
+    // Classifications Lambda
     const classificationsLambda = new lambda.NodejsFunction(this, 'ClassificationsLambda', {
       entry: path.join(__dirname, '..', '..', 'lambdas', 'classifications', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      environment: { CONFIG_TABLE: props.configTable.tableName },
+      tracing: lambdaBase.Tracing.ACTIVE,
+      environment: { CONFIG_TABLE: configTableName },
     })
-    props.configTable.grantReadWriteData(classificationsLambda)
-    props.processingEncryptionKey.grantDecrypt(classificationsLambda)
+    configTable.grantReadWriteData(classificationsLambda)
+    processingKey.grantDecrypt(classificationsLambda)
 
-    // Vendors Lambda (operates on config table VENDOR# items)
+    // Vendors Lambda
     const vendorsLambda = new lambda.NodejsFunction(this, 'VendorsLambda', {
       entry: path.join(__dirname, '..', '..', 'lambdas', 'vendors', 'index.ts'),
       handler: 'handler',
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      environment: { CONFIG_TABLE: props.configTable.tableName },
+      tracing: lambdaBase.Tracing.ACTIVE,
+      environment: { CONFIG_TABLE: configTableName },
     })
-    props.configTable.grantReadWriteData(vendorsLambda)
-    props.processingEncryptionKey.grantDecrypt(vendorsLambda)
+    configTable.grantReadWriteData(vendorsLambda)
+    processingKey.grantDecrypt(vendorsLambda)
 
     // Routes
-    const uploadIntegration = new apigwv2Int.HttpLambdaIntegration('UploadInt', uploadLambda)
-    const documentsIntegration = new apigwv2Int.HttpLambdaIntegration(
-      'DocumentsInt',
-      documentsLambda,
-    )
-    const classificationsIntegration = new apigwv2Int.HttpLambdaIntegration(
-      'ClassificationsInt',
-      classificationsLambda,
-    )
-    const vendorsIntegration = new apigwv2Int.HttpLambdaIntegration('VendorsInt', vendorsLambda)
+    const uploadInt = new apigwv2Int.HttpLambdaIntegration('UploadInt', uploadLambda)
+    const docsInt = new apigwv2Int.HttpLambdaIntegration('DocumentsInt', documentsLambda)
+    const classInt = new apigwv2Int.HttpLambdaIntegration('ClassificationsInt', classificationsLambda)
+    const vendorsInt = new apigwv2Int.HttpLambdaIntegration('VendorsInt', vendorsLambda)
 
-    this.api.addRoutes({
-      path: '/upload',
-      methods: [apigwv2.HttpMethod.POST],
-      integration: uploadIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/documents',
-      methods: [apigwv2.HttpMethod.GET],
-      integration: documentsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/documents/reprocess',
-      methods: [apigwv2.HttpMethod.POST],
-      integration: documentsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/documents/{id}',
-      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
-      integration: documentsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/classifications',
-      methods: [apigwv2.HttpMethod.GET],
-      integration: classificationsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/classifications/stats',
-      methods: [apigwv2.HttpMethod.GET],
-      integration: documentsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/classifications/{documentType}',
-      methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
-      integration: classificationsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/vendors',
-      methods: [apigwv2.HttpMethod.GET],
-      integration: vendorsIntegration,
-      authorizer,
-    })
-    this.api.addRoutes({
-      path: '/vendors/{vendorId}',
-      methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
-      integration: vendorsIntegration,
-      authorizer,
-    })
+    this.api.addRoutes({ path: '/upload', methods: [apigwv2.HttpMethod.POST], integration: uploadInt, authorizer })
+    this.api.addRoutes({ path: '/documents', methods: [apigwv2.HttpMethod.GET], integration: docsInt, authorizer })
+    this.api.addRoutes({ path: '/documents/reprocess', methods: [apigwv2.HttpMethod.POST], integration: docsInt, authorizer })
+    this.api.addRoutes({ path: '/documents/{id}', methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH], integration: docsInt, authorizer })
+    this.api.addRoutes({ path: '/classifications', methods: [apigwv2.HttpMethod.GET], integration: classInt, authorizer })
+    this.api.addRoutes({ path: '/classifications/stats', methods: [apigwv2.HttpMethod.GET], integration: docsInt, authorizer })
+    this.api.addRoutes({ path: '/classifications/{documentType}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: classInt, authorizer })
+    this.api.addRoutes({ path: '/vendors', methods: [apigwv2.HttpMethod.GET], integration: vendorsInt, authorizer })
+    this.api.addRoutes({ path: '/vendors/{vendorId}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: vendorsInt, authorizer })
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint })
-
-    // Legacy — keep cross-stack imports alive during migration (remove after next deploy)
-    if (props.classificationConfigTable) {
-      props.classificationConfigTable.grantReadData(classificationsLambda)
-      new cdk.CfnOutput(this, 'LegacyClassificationTableName', {
-        value: props.classificationConfigTable.tableName,
-      })
-    }
-    if (props.vendorConfigTable) {
-      props.vendorConfigTable.grantReadData(vendorsLambda)
-      new cdk.CfnOutput(this, 'LegacyVendorTableName', {
-        value: props.vendorConfigTable.tableName,
-      })
-    }
   }
 }

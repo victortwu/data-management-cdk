@@ -41,7 +41,8 @@ export interface BedrockAnalysisResult {
 }
 
 export interface ConfigItem {
-  pk: string // TYPE#financial, VENDOR#irs, STATUS#processed
+  tenantId: string
+  sk: string // TYPE#financial, VENDOR#irs, TENANT#meta
   label: string
   subTypes?: Record<string, string[]>
   aliases?: string[]

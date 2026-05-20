@@ -1,11 +1,11 @@
-import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb'
-import { APIGatewayProxyHandlerV2 } from 'aws-lambda'
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import { APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda'
 import { DOCUMENT_TABLE } from '../constants'
 import { respond } from '../../shared/utils/respond'
-import { dateRangeExpr, dateRangeValues } from '../utils/dateRange'
 
 export const listDocuments = async (
-  event: Parameters<APIGatewayProxyHandlerV2>[0],
+  tenantId: string,
+  event: Parameters<APIGatewayProxyHandlerV2WithJWTAuthorizer>[0],
   ddb: DynamoDBDocumentClient,
 ) => {
   const qs = event.queryStringParameters ?? {}
@@ -30,9 +30,8 @@ export const listDocuments = async (
       IndexName: 'ByStatus',
       Limit: limit,
       ExclusiveStartKey: nextToken,
-      KeyConditionExpression: '#s = :s' + dateRangeExpr(qs, 'uploadedAt'),
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':s': qs.status, ...dateRangeValues(qs) },
+      KeyConditionExpression: 'tenantId = :tid AND begins_with(statusDate, :prefix)',
+      ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.status}#` },
     }
   } else if (qs.documentType) {
     params = {
@@ -40,8 +39,8 @@ export const listDocuments = async (
       IndexName: 'ByType',
       Limit: limit,
       ExclusiveStartKey: nextToken,
-      KeyConditionExpression: 'documentType = :dt' + dateRangeExpr(qs, 'documentDate'),
-      ExpressionAttributeValues: { ':dt': qs.documentType, ...dateRangeValues(qs) },
+      KeyConditionExpression: 'tenantId = :tid AND begins_with(typeDate, :prefix)',
+      ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.documentType}#` },
     }
   } else if (qs.vendorName) {
     params = {
@@ -49,19 +48,19 @@ export const listDocuments = async (
       IndexName: 'ByVendor',
       Limit: limit,
       ExclusiveStartKey: nextToken,
-      KeyConditionExpression: 'vendorName = :vn' + dateRangeExpr(qs, 'documentDate'),
-      ExpressionAttributeValues: { ':vn': qs.vendorName, ...dateRangeValues(qs) },
+      KeyConditionExpression: 'tenantId = :tid AND begins_with(vendorDate, :prefix)',
+      ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.vendorName}#` },
     }
   } else {
-    params = { TableName: DOCUMENT_TABLE, Limit: limit, ExclusiveStartKey: nextToken }
-    const result = await ddb.send(new ScanCommand(params as any))
-    return respond(200, {
-      documents: result.Items ?? [],
-      nextToken: result.LastEvaluatedKey
-        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64url')
-        : null,
-      count: result.Items?.length ?? 0,
-    })
+    // Default: query by tenantId on base table (no scan)
+    params = {
+      TableName: DOCUMENT_TABLE,
+      Limit: limit,
+      ExclusiveStartKey: nextToken,
+      KeyConditionExpression: 'tenantId = :tid',
+      ExpressionAttributeValues: { ':tid': tenantId },
+      ScanIndexForward: false,
+    }
   }
 
   const result = await ddb.send(new QueryCommand(params as any))
