@@ -21,13 +21,18 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
 
   logger.appendKeys({ tenantId, route: `${method} ${path}` })
 
-  if (method === 'GET' && path.endsWith('/classifications/stats'))
-    return getClassificationStats(tenantId, ddb)
-  if (method === 'POST' && path.endsWith('/documents/reprocess'))
-    return reprocessDocuments(tenantId, ddb)
-  if (method === 'GET' && !id) return listDocuments(tenantId, event, ddb)
-  if (method === 'GET' && id) return getDocument(tenantId, id, ddb)
-  if (method === 'PATCH' && id) return patchDocument(tenantId, id, event, ddb)
+  try {
+    if (method === 'GET' && path.endsWith('/classifications/stats'))
+      return getClassificationStats(tenantId, ddb)
+    if (method === 'POST' && path.endsWith('/documents/reprocess'))
+      return reprocessDocuments(tenantId, ddb)
+    if (method === 'GET' && !id) return listDocuments(tenantId, event, ddb)
+    if (method === 'GET' && id) return getDocument(tenantId, id, ddb)
+    if (method === 'PATCH' && id) return patchDocument(tenantId, id, event, ddb)
 
-  return respond(400, { error: 'VALIDATION_ERROR', message: 'Invalid request' })
+    return respond(400, { error: 'VALIDATION_ERROR', message: 'Invalid request' })
+  } catch (err) {
+    logger.error('Unhandled error', { error: (err as Error).message })
+    return respond(500, { error: 'INTERNAL_ERROR', message: (err as Error).message })
+  }
 }

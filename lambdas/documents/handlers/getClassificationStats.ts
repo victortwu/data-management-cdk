@@ -15,7 +15,8 @@ export const getClassificationStats = async (tenantId: string, ddb: DynamoDBDocu
         TableName: DOCUMENT_TABLE,
         KeyConditionExpression: 'tenantId = :tid',
         ExpressionAttributeValues: { ':tid': tenantId },
-        ProjectionExpression: 'documentType, subType, vendorName',
+        ProjectionExpression: 'documentType, #st, vendorName',
+        ExpressionAttributeNames: { '#st': 'subType' },
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       }),
     )

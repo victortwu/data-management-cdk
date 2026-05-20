@@ -12,7 +12,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const LANDING_BUCKET = process.env.LANDING_BUCKET!
 const DOCUMENT_TABLE = process.env.DOCUMENT_TABLE!
 const URL_EXPIRY_SECONDS = 900
-const MAX_FILES = 25
+const MAX_FILES = 50
 
 interface FileRequest {
   filename: string

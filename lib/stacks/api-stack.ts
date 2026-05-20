@@ -42,8 +42,14 @@ export class DataMgmtApiStack extends cdk.Stack {
     const ingestionKey = kms.Key.fromKeyArn(this, 'IngestionKey', ingestionKeyArn)
     const processedBucket = s3.Bucket.fromBucketAttributes(this, 'ProcessedBucket', { bucketArn: processedBucketArn, bucketName: processedBucketName })
     const processingKey = kms.Key.fromKeyArn(this, 'ProcessingKey', processingKeyArn)
-    const documentTable = dynamodb.Table.fromTableArn(this, 'DocumentTable', documentTableArn)
-    const configTable = dynamodb.Table.fromTableArn(this, 'ConfigTable', configTableArn)
+    const documentTable = dynamodb.Table.fromTableAttributes(this, 'DocumentTable', {
+      tableArn: documentTableArn,
+      grantIndexPermissions: true,
+    })
+    const configTable = dynamodb.Table.fromTableAttributes(this, 'ConfigTable', {
+      tableArn: configTableArn,
+      grantIndexPermissions: true,
+    })
 
     // API Gateway
     this.api = new apigwv2.HttpApi(this, 'HttpApi', {
