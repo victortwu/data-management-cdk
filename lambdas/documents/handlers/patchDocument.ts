@@ -1,7 +1,19 @@
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda'
 import { DOCUMENT_TABLE } from '../constants'
 import { respond } from '../../shared/utils/respond'
+
+const EDITABLE_FIELDS = [
+  'status',
+  'documentType',
+  'subType',
+  'vendorName',
+  'documentDate',
+  'contactName',
+  'amounts',
+  'description',
+  'reviewNotes',
+] as const
 
 export const patchDocument = async (
   tenantId: string,
@@ -10,33 +22,63 @@ export const patchDocument = async (
   ddb: DynamoDBDocumentClient,
 ) => {
   const body = JSON.parse(event.body ?? '{}')
-  const { status, documentType, reviewNotes } = body
 
-  if (!status && !documentType && reviewNotes === undefined) {
+  const updates: Record<string, unknown> = {}
+  for (const field of EDITABLE_FIELDS) {
+    if (body[field] !== undefined) updates[field] = body[field]
+  }
+
+  if (Object.keys(updates).length === 0) {
     return respond(400, {
       error: 'VALIDATION_ERROR',
-      message: 'Provide at least one of: status, documentType, reviewNotes',
+      message: `Provide at least one of: ${EDITABLE_FIELDS.join(', ')}`,
     })
+  }
+
+  // If GSI key components are changing, read current doc to merge
+  const needsGsiUpdate =
+    updates.documentType !== undefined ||
+    updates.vendorName !== undefined ||
+    updates.documentDate !== undefined ||
+    updates.status !== undefined
+
+  let current: Record<string, unknown> = {}
+  if (needsGsiUpdate) {
+    const existing = await ddb.send(
+      new GetCommand({
+        TableName: DOCUMENT_TABLE,
+        Key: { tenantId, documentId: id },
+        ProjectionExpression: 'documentType, vendorName, documentDate',
+      }),
+    )
+    if (!existing.Item) return respond(404, { error: 'NOT_FOUND', message: 'Document not found' })
+    current = existing.Item
+  }
+
+  // Merge current + updates for composite keys
+  const docType = (updates.documentType ?? current.documentType) as string | undefined
+  const docDate = (updates.documentDate ?? current.documentDate) as string | undefined
+  const vendor = (updates.vendorName ?? current.vendorName) as string | undefined
+
+  if (docType !== undefined || updates.documentType !== undefined || updates.documentDate !== undefined) {
+    updates.typeDate = docType ? `${docType}#${docDate ?? ''}` : undefined
+  }
+  if (vendor !== undefined || updates.vendorName !== undefined || updates.documentDate !== undefined) {
+    updates.vendorDate = vendor ? `${vendor}#${docDate ?? ''}` : undefined
+  }
+  if (updates.status !== undefined) {
+    updates.statusDate = `${updates.status}#${new Date().toISOString()}`
   }
 
   const names: Record<string, string> = {}
   const values: Record<string, unknown> = {}
   const parts: string[] = []
 
-  if (status) {
-    names['#s'] = 'status'
-    values[':s'] = status
-    parts.push('#s = :s')
-  }
-  if (documentType) {
-    names['#dt'] = 'documentType'
-    values[':dt'] = documentType
-    parts.push('#dt = :dt')
-  }
-  if (reviewNotes !== undefined) {
-    names['#rn'] = 'reviewNotes'
-    values[':rn'] = reviewNotes
-    parts.push('#rn = :rn')
+  for (const [field, value] of Object.entries(updates)) {
+    const alias = `#${field}`
+    names[alias] = field
+    values[`:${field}`] = value
+    parts.push(`${alias} = :${field}`)
   }
 
   const result = await ddb
