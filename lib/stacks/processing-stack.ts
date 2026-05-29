@@ -74,6 +74,14 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.GET],
+          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io'],
+          allowedHeaders: ['*'],
+          maxAge: 3600,
+        },
+      ],
     })
 
     // Glacier bucket
