@@ -28,8 +28,6 @@ export const listDocuments = async (
     params = {
       TableName: DOCUMENT_TABLE,
       IndexName: 'ByStatus',
-      Limit: limit,
-      ExclusiveStartKey: nextToken,
       KeyConditionExpression: 'tenantId = :tid AND begins_with(statusDate, :prefix)',
       ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.status}#` },
     }
@@ -37,8 +35,6 @@ export const listDocuments = async (
     params = {
       TableName: DOCUMENT_TABLE,
       IndexName: 'ByType',
-      Limit: limit,
-      ExclusiveStartKey: nextToken,
       KeyConditionExpression: 'tenantId = :tid AND begins_with(typeDate, :prefix)',
       ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.documentType}#` },
     }
@@ -46,22 +42,44 @@ export const listDocuments = async (
     params = {
       TableName: DOCUMENT_TABLE,
       IndexName: 'ByVendor',
-      Limit: limit,
-      ExclusiveStartKey: nextToken,
       KeyConditionExpression: 'tenantId = :tid AND begins_with(vendorDate, :prefix)',
       ExpressionAttributeValues: { ':tid': tenantId, ':prefix': `${qs.vendorName}#` },
     }
   } else {
-    // Default: query by tenantId on base table (no scan)
     params = {
       TableName: DOCUMENT_TABLE,
-      Limit: limit,
-      ExclusiveStartKey: nextToken,
       KeyConditionExpression: 'tenantId = :tid',
       ExpressionAttributeValues: { ':tid': tenantId },
-      ScanIndexForward: false,
     }
   }
+
+  // Date range as FilterExpression (combines with any GSI query)
+  const filterParts: string[] = []
+  const filterNames: Record<string, string> = {}
+  const values = params.ExpressionAttributeValues as Record<string, unknown>
+
+  if (qs.startDate) {
+    filterParts.push('#docDate >= :startDate')
+    filterNames['#docDate'] = 'documentDate'
+    values[':startDate'] = qs.startDate
+  }
+  if (qs.endDate) {
+    if (!filterNames['#docDate']) filterNames['#docDate'] = 'documentDate'
+    filterParts.push('#docDate <= :endDate')
+    values[':endDate'] = qs.endDate
+  }
+
+  if (filterParts.length > 0) {
+    params.FilterExpression = filterParts.join(' AND ')
+    params.ExpressionAttributeNames = {
+      ...(params.ExpressionAttributeNames as Record<string, string> | undefined),
+      ...filterNames,
+    }
+  }
+
+  params.Limit = limit
+  params.ExclusiveStartKey = nextToken
+  params.ScanIndexForward = false
 
   const result = await ddb.send(new QueryCommand(params as any))
   return respond(200, {
