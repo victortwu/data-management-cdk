@@ -3,7 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda'
-import { randomUUID } from 'crypto'
+import { ulid } from 'ulid'
 import { respond } from '../shared/utils/respond'
 import { extractTenantContext } from '../shared/utils/tenantContext'
 
@@ -47,11 +47,11 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
     }
   }
 
-  const batchId = randomUUID()
+  const batchId = ulid()
 
   const uploads = await Promise.all(
     files.map(async (f) => {
-      const documentId = randomUUID()
+      const documentId = ulid()
       const key = `uploads/${tenantId}/${batchId}/${f.filename}`
       const url = await getSignedUrl(
         s3,

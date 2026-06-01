@@ -3,7 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { SQSHandler } from 'aws-lambda'
 import { simpleParser, ParsedMail } from 'mailparser'
-import { randomUUID } from 'crypto'
+import { ulid } from 'ulid'
 
 import { PROCESSED_BUCKET, DOCUMENT_TABLE, MIN_EMAIL_BODY_LENGTH } from './constants'
 import type { DocumentRecord, DocumentStatus } from './types'
@@ -39,7 +39,7 @@ const processDocument = async (
   preExtractedText?: string,
   existingDocumentId?: string,
 ) => {
-  const documentId = existingDocumentId ?? randomUUID()
+  const documentId = existingDocumentId ?? ulid()
   const prefix = `documents/${tenantId}/${documentId}`
 
   // Check if document was pre-classified at upload time
@@ -138,7 +138,7 @@ const processEmail = async (
   systemPrompt: string,
 ) => {
   const parsed: ParsedMail = await simpleParser(fileBytes)
-  const emailId = randomUUID()
+  const emailId = ulid()
 
   const bodyText = parsed.text ?? ''
   if (bodyText.length >= MIN_EMAIL_BODY_LENGTH) {
@@ -185,7 +185,7 @@ export const handler: SQSHandler = async (event) => {
       await saveMetadata(
         tenantId,
         {
-          documentId: randomUUID(),
+          documentId: ulid(),
           status: 'needs_review',
           reviewReason: `processing_error: ${(err as Error).message}`,
           fileType: 'unknown',
