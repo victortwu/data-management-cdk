@@ -37,18 +37,19 @@ const processDocument = async (
   systemPrompt: string,
   sourceEmailId?: string,
   preExtractedText?: string,
+  existingDocumentId?: string,
 ) => {
-  const documentId = randomUUID()
+  const documentId = existingDocumentId ?? randomUUID()
   const prefix = `documents/${tenantId}/${documentId}`
 
   // Check if document was pre-classified at upload time
-  const existing = await ddb.send(
-    new GetCommand({
-      TableName: DOCUMENT_TABLE,
-      Key: { tenantId, documentId },
-    }),
-  )
-  const skipLlm = existing.Item?.status === 'processed'
+  let skipLlm = false
+  if (existingDocumentId) {
+    const existing = await ddb.send(
+      new GetCommand({ TableName: DOCUMENT_TABLE, Key: { tenantId, documentId } }),
+    )
+    skipLlm = existing.Item?.status === 'processed'
+  }
 
   // Store original
   const originalExt = originalKey.split('.').pop()?.toLowerCase() ?? 'bin'
@@ -164,13 +165,14 @@ export const handler: SQSHandler = async (event) => {
     try {
       const start = Date.now()
       const systemPrompt = await buildBedrockPrompt(tenantId, ddb)
-      const fileBytes = await getFileFromS3(bucket, key)
+      const { bytes: fileBytes, metadata } = await getFileFromS3(bucket, key)
       const fileType = detectFileType(key)
+      const documentId = metadata.documentid || undefined
 
       if (fileType === 'email') {
         await processEmail(tenantId, fileBytes, key, systemPrompt)
       } else {
-        await processDocument(tenantId, fileBytes, key, fileType, 'upload', systemPrompt)
+        await processDocument(tenantId, fileBytes, key, fileType, 'upload', systemPrompt, undefined, undefined, documentId)
       }
 
       const latencyMs = Date.now() - start

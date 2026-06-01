@@ -55,7 +55,12 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
       const key = `uploads/${tenantId}/${batchId}/${f.filename}`
       const url = await getSignedUrl(
         s3,
-        new PutObjectCommand({ Bucket: LANDING_BUCKET, Key: key, ContentType: f.contentType }),
+        new PutObjectCommand({
+          Bucket: LANDING_BUCKET,
+          Key: key,
+          ContentType: f.contentType,
+          Metadata: { documentid: documentId },
+        }),
         { expiresIn: URL_EXPIRY_SECONDS },
       )
 
