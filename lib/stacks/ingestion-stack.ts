@@ -6,6 +6,8 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as targets from 'aws-cdk-lib/aws-events-targets'
+import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs'
+import * as lambdaRuntime from 'aws-cdk-lib/aws-lambda'
 import { Construct } from 'constructs'
 import { StageConfig } from '../../config'
 
@@ -37,6 +39,18 @@ export class DataMgmtIngestionStack extends cdk.Stack {
       }),
     )
 
+    // Allow SES to use the key for encrypting email objects
+    this.encryptionKey.addToResourcePolicy(
+      new iam.PolicyStatement({
+        principals: [new iam.ServicePrincipal('ses.amazonaws.com')],
+        actions: ['kms:GenerateDataKey', 'kms:Encrypt'],
+        resources: ['*'],
+        conditions: {
+          StringEquals: { 'AWS:SourceAccount': cdk.Stack.of(this).account },
+        },
+      }),
+    )
+
     this.landingBucket = new s3.Bucket(this, 'LandingBucket', {
       versioned: true,
       encryption: s3.BucketEncryption.KMS,
@@ -49,13 +63,25 @@ export class DataMgmtIngestionStack extends cdk.Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.PUT],
-          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io'],
+          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io', 'https://d3nkbx63md9n7v.cloudfront.net'],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3600,
         },
       ],
     })
+
+    // Allow SES to write email objects to the landing bucket
+    this.landingBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        principals: [new iam.ServicePrincipal('ses.amazonaws.com')],
+        actions: ['s3:PutObject'],
+        resources: [this.landingBucket.arnForObjects('emails/*')],
+        conditions: {
+          StringEquals: { 'AWS:SourceAccount': cdk.Stack.of(this).account },
+        },
+      }),
+    )
 
     this.ingestionDlq = new sqs.Queue(this, 'IngestionDlq', {
       retentionPeriod: cdk.Duration.days(14),
@@ -77,9 +103,38 @@ export class DataMgmtIngestionStack extends cdk.Stack {
         detailType: ['Object Created'],
         detail: {
           bucket: { name: [this.landingBucket.bucketName] },
+          object: { key: [{ prefix: 'uploads/' }] },
         },
       },
       targets: [new targets.SqsQueue(this.ingestionQueue)],
+    })
+
+    // Email processing Lambda — parses MIME from emails/ prefix, writes to uploads/
+    const emailLambda = new lambda.NodejsFunction(this, 'EmailLambda', {
+      entry: 'lambdas/email/index.ts',
+      handler: 'handler',
+      runtime: lambdaRuntime.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+      environment: {
+        LANDING_BUCKET: this.landingBucket.bucketName,
+        TENANT_ID: props.stage.stageName === 'Beta' ? 'a29f58f2-8459-4575-bbc2-44b68b050b64' : '',
+      },
+    })
+
+    this.landingBucket.grantRead(emailLambda, 'emails/*')
+    this.landingBucket.grantPut(emailLambda, 'uploads/*')
+
+    new events.Rule(this, 'EmailObjectCreatedRule', {
+      eventPattern: {
+        source: ['aws.s3'],
+        detailType: ['Object Created'],
+        detail: {
+          bucket: { name: [this.landingBucket.bucketName] },
+          object: { key: [{ prefix: 'emails/' }] },
+        },
+      },
+      targets: [new targets.LambdaFunction(emailLambda)],
     })
 
     // SSM Parameters for cross-stack references

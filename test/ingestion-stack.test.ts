@@ -146,24 +146,44 @@ describe('KMS Encryption', () => {
 })
 
 describe('EventBridge Rule', () => {
-  test('routes S3 Object Created events', () => {
+  test('routes uploads/ prefix to ingestion SQS queue', () => {
     const template = Template.fromStack(createStack())
     template.hasResourceProperties('AWS::Events::Rule', {
       EventPattern: {
         source: ['aws.s3'],
         'detail-type': ['Object Created'],
+        detail: Match.objectLike({
+          object: { key: [{ prefix: 'uploads/' }] },
+        }),
       },
+      Targets: Match.arrayWith([
+        Match.objectLike({ Arn: Match.anyValue() }),
+      ]),
     })
   })
 
-  test('targets the ingestion SQS queue', () => {
+  test('routes emails/ prefix to email Lambda', () => {
     const template = Template.fromStack(createStack())
     template.hasResourceProperties('AWS::Events::Rule', {
-      Targets: Match.arrayWith([
-        Match.objectLike({
-          Arn: Match.anyValue(),
+      EventPattern: {
+        source: ['aws.s3'],
+        'detail-type': ['Object Created'],
+        detail: Match.objectLike({
+          object: { key: [{ prefix: 'emails/' }] },
         }),
-      ]),
+      },
+    })
+  })
+})
+
+describe('Email Lambda', () => {
+  test('creates an email processing Lambda', () => {
+    const template = Template.fromStack(createStack())
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Handler: 'index.handler',
+      Runtime: 'nodejs20.x',
+      Timeout: 60,
+      MemorySize: 512,
     })
   })
 })

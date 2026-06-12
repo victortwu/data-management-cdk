@@ -77,7 +77,7 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.GET],
-          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io'],
+          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io', 'https://d3nkbx63md9n7v.cloudfront.net'],
           allowedHeaders: ['*'],
           maxAge: 3600,
         },
