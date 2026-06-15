@@ -13,7 +13,8 @@ export const textToPdf = async (text: string): Promise<Buffer> => {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
 
-  const lines = wrapText(text, font, FONT_SIZE, USABLE_WIDTH)
+  const sanitized = text.replace(/[^\x00-\xFF]/g, ' ')
+  const lines = wrapText(sanitized, font, FONT_SIZE, USABLE_WIDTH)
 
   for (let i = 0; i < lines.length; i += LINES_PER_PAGE) {
     const pageLines = lines.slice(i, i + LINES_PER_PAGE)

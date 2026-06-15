@@ -17,6 +17,9 @@ const DISCARD_EXTENSIONS = new Set(['exe', 'zip', 'bat', 'scr', 'js'])
 const getExtension = (filename: string): string =>
   (filename.split('.').pop() ?? '').toLowerCase()
 
+const sanitizeForMetadata = (value: string): string =>
+  value.replace(/[^\x20-\x7E]/g, '').slice(0, 200)
+
 const classifyAttachment = (filename: string): 'process' | 'store' | 'discard' => {
   const ext = getExtension(filename)
   if (PROCESS_EXTENSIONS.has(ext)) return 'process'
@@ -48,7 +51,7 @@ export const handler: EventBridgeHandler<'Object Created', { bucket: { name: str
         Bucket: LANDING_BUCKET,
         Key: `${prefix}/${bodyFilename}`,
         Body: parsed.text,
-        Metadata: { source: 'email', 'email-subject': parsed.subject ?? '' },
+        Metadata: { source: 'email', 'email-subject': sanitizeForMetadata(parsed.subject ?? '') },
       }),
     )
   }
@@ -64,7 +67,7 @@ export const handler: EventBridgeHandler<'Object Created', { bucket: { name: str
 
     const metadata: Record<string, string> = {
       source: 'email',
-      'email-subject': parsed.subject ?? '',
+      'email-subject': sanitizeForMetadata(parsed.subject ?? ''),
       'original-filename': filename,
     }
 

@@ -79,7 +79,7 @@ const processDocument = async (
   let extractedText: string
   if (preExtractedText) {
     extractedText = preExtractedText
-  } else if (fileType === 'csv' || fileType === 'excel') {
+  } else if (fileType === 'csv' || fileType === 'excel' || fileType === 'text') {
     extractedText = fileBytes.toString('utf-8')
   } else if (fileType === 'pdf') {
     extractedText = await extractTextWithTextract(fileBytes, PROCESSED_BUCKET, originalUri)

@@ -8,6 +8,7 @@ const FILE_TYPE_MAP: Record<string, string> = {
   xlsx: 'excel',
   xls: 'excel',
   csv: 'csv',
+  txt: 'text',
   eml: 'email',
 }
 
