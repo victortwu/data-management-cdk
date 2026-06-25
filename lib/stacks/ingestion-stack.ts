@@ -63,7 +63,7 @@ export class DataMgmtIngestionStack extends cdk.Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.PUT],
-          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io', 'https://d3nkbx63md9n7v.cloudfront.net'],
+          allowedOrigins: ['http://localhost:5173', 'https://app.datamanager.io', 'https://d3nkbx63md9n7v.cloudfront.net', 'https://d2cbycn7nzfhsx.cloudfront.net'],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3600,

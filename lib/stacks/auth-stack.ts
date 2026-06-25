@@ -86,8 +86,8 @@ export class DataMgmtAuthStack extends cdk.Stack {
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-        callbackUrls: ['http://localhost:5173/', 'https://app.datamanager.io/', 'https://d3nkbx63md9n7v.cloudfront.net/'],
-        logoutUrls: ['http://localhost:5173/', 'https://app.datamanager.io/', 'https://d3nkbx63md9n7v.cloudfront.net/'],
+        callbackUrls: ['http://localhost:5173/', 'https://app.datamanager.io/', 'https://d3nkbx63md9n7v.cloudfront.net/', 'https://d2cbycn7nzfhsx.cloudfront.net/'],
+        logoutUrls: ['http://localhost:5173/', 'https://app.datamanager.io/', 'https://d3nkbx63md9n7v.cloudfront.net/', 'https://d2cbycn7nzfhsx.cloudfront.net/'],
       },
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
     })

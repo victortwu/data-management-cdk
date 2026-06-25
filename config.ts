@@ -12,7 +12,7 @@ export interface EmailConfig {
 export const stages: StageConfig[] = [
   { stageName: 'Beta' },
   { stageName: 'Gamma', selfSignUp: true },
-  { stageName: 'Prod', selfSignUp: true },
+  { stageName: 'Prod', selfSignUp: false, env: { account: '639914975031', region: 'us-west-2' } },
 ]
 
 export const emailConfig: Record<string, EmailConfig> = {
