@@ -8,6 +8,8 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
+    "test:unit": "jest --config jest.config.js",
+    "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --config jest.integration.config.js",
     "cdk": "cdk"
   },
   "devDependencies": {
@@ -25,6 +27,7 @@
     "@types/jest": "^30.0.0",
     "@types/mailparser": "^3.4.6",
     "aws-cdk": "2.1119.0",
+    "aws-sdk-client-mock": "^4.1.0",
     "esbuild": "^0.28.0",
     "jest": "^30.3.0",
     "prettier": "^3.8.3",
