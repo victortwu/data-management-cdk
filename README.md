@@ -1,17 +1,18 @@
-# DataManagement CDK
+# Parsely — Document Intelligence Backend
 
-AWS CDK infrastructure for a document management pipeline that ingests, processes, classifies, and archives documents from multiple input channels (UI upload, email, bulk upload). The system extracts text and metadata using Textract and Comprehend, stores results in DynamoDB, and exposes a REST API for querying, reviewing, and managing documents.
+AWS CDK infrastructure for a multi-tenant document intelligence pipeline that ingests, processes, classifies, and archives documents from multiple input channels (UI upload, email, bulk upload). The system extracts text using Textract, classifies and extracts metadata using Bedrock (Amazon Nova Lite), stores results in DynamoDB, and exposes a REST API for querying, reviewing, and managing documents.
 
 ## Architecture
 
 ```
                          ┌─────────────────────────────────────────────────┐
                          │              Input Channels                     │
-                         │   Web App  ·  Email (SES)  ·  Bulk Upload      │
+                         │   React SPA  ·  Email (SES)  ·  Bulk Upload    │
                          └────────────────────┬────────────────────────────┘
                                               │
                                     ┌─────────▼─────────┐
                                     │  S3 Landing Bucket │
+                                    │  uploads/{tenantId}│
                                     └─────────┬─────────┘
                                               │
                                         EventBridge
@@ -31,8 +32,8 @@ AWS CDK infrastructure for a document management pipeline that ingests, processe
                     ┌────────────┘   │   └──────┐     │
                     ▼                ▼          ▼     ▼
               ┌──────────┐   ┌───────────┐  ┌──────────────┐
-              │ Textract │   │Comprehend │  │Glacier Bucket│
-              │   OCR    │   │  NLP      │  └──────────────┘
+              │ Textract │   │  Bedrock  │  │Glacier Bucket│
+              │   OCR    │   │ Nova Lite │  └──────────────┘
               └────┬─────┘   └─────┬─────┘
                    │               │
                    └───────┬───────┘
@@ -44,9 +45,17 @@ AWS CDK infrastructure for a document management pipeline that ingests, processe
                            │
                            ▼
               ┌─────────────────────────┐
-              │  DynamoDB Metadata      │
-              │  (GSIs: ByType,         │
-              │   ByVendor, ByStatus)   │
+              │  DynamoDB Document Table │
+              │  PK: tenantId           │
+              │  GSIs: ByType, ByVendor,│
+              │   ByStatus, ByDate,     │
+              │   BySource              │
+              └────────────┬────────────┘
+                           │
+              ┌─────────────────────────┐
+              │  DynamoDB Config Table   │
+              │  TYPE#, VENDOR#,         │
+              │  TENANT#meta            │
               └────────────┬────────────┘
                            │
                     ┌──────▼──────┐
@@ -55,89 +64,84 @@ AWS CDK infrastructure for a document management pipeline that ingests, processe
                     └─────────────┘
 ```
 
+## Processing Pipeline
+
+For each uploaded file, the Processing Lambda:
+
+1. Detects file type (PDF, image, text, CSV, email)
+2. Converts to PDF (`pdf-lib` — images embedded, text wrapped)
+3. Extracts text (Textract sync for images, async for multi-page PDFs)
+4. Queries tenant's config table for known types/vendors
+5. Classifies + extracts metadata via Bedrock (Amazon Nova Lite, temperature=0)
+6. Saves metadata to DynamoDB, files to processed bucket
+
+Config table items (TYPE# with subType keywords, VENDOR# with aliases) are injected into the LLM system prompt, directly influencing classification output.
+
 ## Stacks
 
-Each stage (Beta, Prod) deploys 4 stacks:
+Each stage (Beta, Gamma, Prod) deploys 4 core stacks + 1 optional email stack:
 
 | Stack | Purpose |
 |-------|---------|
-| `{Stage}-DataMgmtAuthStack` | Cognito User Pool and client for authentication |
-| `{Stage}-DataMgmtIngestionStack` | S3 landing bucket, EventBridge rule, SQS ingestion queue |
-| `{Stage}-DataMgmtProcessingStack` | Processing + archive Lambdas, processed/Glacier buckets, DynamoDB tables |
-| `{Stage}-DataMgmtApiStack` | API Gateway HTTP API, upload/documents/classifications Lambdas |
+| `{Stage}-DataMgmtIngestionStack` | S3 landing bucket, EventBridge rules, SQS queues, Email Lambda |
+| `{Stage}-DataMgmtProcessingStack` | Processing + Archive Lambdas, processed/Glacier buckets, DynamoDB tables |
+| `{Stage}-DataMgmtAuthStack` | Cognito User Pool, post-confirmation Lambda (tenant provisioning) |
+| `{Stage}-DataMgmtApiStack` | API Gateway HTTP API, 4 Lambda handlers |
+| `{Stage}-BDK-DataMgmtEmailStack` | SES receipt rule (us-east-1, optional) |
+
+Cross-stack communication via SSM Parameter Store (`/{stage}/datamgmt/*`).
 
 ## API Endpoints
 
-All endpoints require a Cognito JWT in the `Authorization` header.
+All 12 endpoints require a Cognito JWT in the `Authorization` header.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/upload` | Generate presigned S3 upload URLs (1–25 files per request) |
-| `GET` | `/documents` | List documents with filters (status, type, vendor, date range) |
-| `GET` | `/documents/{id}` | Get document detail with presigned download URLs |
-| `PATCH` | `/documents/{id}` | Update status, classification, or review notes |
-| `GET` | `/classifications` | List all classification keyword configs |
+| `POST` | `/upload` | Generate presigned S3 upload URLs (1–50 files) |
+| `GET` | `/documents` | List documents with GSI routing + date range + pagination |
+| `GET` | `/documents/{id}` | Document detail with presigned download URLs |
+| `PATCH` | `/documents/{id}` | Update status/type/vendor/notes (9 editable fields) |
+| `POST` | `/documents/reprocess` | Re-classify all documents against current config |
+| `GET` | `/classifications` | List all TYPE# config items |
+| `GET` | `/classifications/stats` | Aggregate counts by type/subType/vendor |
 | `PUT` | `/classifications/{documentType}` | Create or update a classification config |
 | `DELETE` | `/classifications/{documentType}` | Remove a classification config |
-
-Full endpoint documentation with request/response schemas is in `.kiro/specs/phase-3-api.md`.
+| `GET` | `/vendors` | List all VENDOR# config items |
+| `PUT` | `/vendors/{vendorId}` | Create or update a vendor config |
+| `DELETE` | `/vendors/{vendorId}` | Remove a vendor config |
 
 ## Prerequisites
 
 - Node.js 20+
 - AWS CLI configured with credentials
-- CDK bootstrapped in target account/region: `npx cdk bootstrap aws://<ACCOUNT_ID>/<REGION>`
+- CDK bootstrapped: `npx cdk bootstrap aws://<ACCOUNT_ID>/<REGION>`
 
 ## Getting Started
 
 ```bash
-# Install dependencies
 npm install
-
-# Run tests
-npm test
-
-# Synthesize CloudFormation templates
-npx cdk synth
-
-# Deploy all stacks (Beta)
-npx cdk deploy "Beta-DataMgmt*"
-
-# Deploy all stacks (all stages)
-npx cdk deploy --all
+npm test              # CDK assertion + unit tests (62 tests)
+npx cdk synth         # Synthesize all templates
+npx cdk deploy "Beta-DataMgmt*"   # Deploy Beta
 ```
 
 ## Post-Deploy Setup
 
-### 1. Seed the classification config table
-
-The processing Lambda uses keyword matching from the classification config table to classify documents. An empty table means every document gets `status: needs_review`.
+### 1. Seed the config table
 
 ```bash
-# Get the table name from CloudFormation outputs
-aws cloudformation describe-stacks \
-  --stack-name Beta-DataMgmtProcessingStack \
-  --query "Stacks[0].Outputs[?contains(OutputKey,'ClassificationConfig')].OutputValue" \
-  --output text
+# Get config table name from SSM
+aws ssm get-parameter --name /Beta/datamgmt/config-table-name --query "Parameter.Value" --output text
 
-# Seed with default classifications
-AWS_REGION=<REGION> TABLE_NAME=<ClassificationConfigTableName> npx ts-node data/seed-classifications.ts
+# Seed types + vendors
+AWS_REGION=us-west-2 CONFIG_TABLE=<name> npx ts-node data/seed-config.ts
 ```
 
-Default classifications seeded: `invoice`, `receipt`, `contract`, `statement`, `purchase_order`, `tax_form`. Edit `data/seed-classifications.json` or use the `PUT /classifications/{documentType}` API to modify at runtime.
+### 2. Create a user (triggers tenant provisioning)
 
-### 2. Create the first Cognito user
-
-Self-signup is disabled. Create users via CLI:
+With self-signup disabled, create users via CLI:
 
 ```bash
-# Get the User Pool ID from CloudFormation outputs
-aws cloudformation describe-stacks \
-  --stack-name Beta-DataMgmtAuthStack \
-  --query "Stacks[0].Outputs[?contains(OutputKey,'UserPoolId')].OutputValue" \
-  --output text
-
-# Create a user
 aws cognito-idp admin-create-user \
   --user-pool-id <USER_POOL_ID> \
   --username your@email.com \
@@ -145,73 +149,86 @@ aws cognito-idp admin-create-user \
   --user-attributes Name=email,Value=your@email.com
 ```
 
-### 3. Note the API URL
+Note: `admin-create-user` does NOT trigger the post-confirmation Lambda. Use the sign-up flow or manually provision the tenant (TENANT#meta + default TYPE# items in config table).
+
+## Deployments
+
+| Environment | Account | Profile | Command |
+|-------------|---------|---------|---------|
+| Beta | `653102291240` | default | `npx cdk deploy "Beta-DataMgmt*"` |
+| Prod | `639914975031` | `datamgmt-prod` | `npx cdk deploy "Prod-DataMgmt*" --profile datamgmt-prod` |
+
+Deploy order (fresh environment): Ingestion → Processing → Auth → API
+Destroy order: API → Processing → Auth → Ingestion
+
+## Testing
 
 ```bash
-aws cloudformation describe-stacks \
-  --stack-name Beta-DataMgmtApiStack \
-  --query "Stacks[0].Outputs[?contains(OutputKey,'ApiUrl')].OutputValue" \
-  --output text
+npm run test:unit         # CDK + unit tests (62 tests, no AWS calls)
+npm run test:integration  # Real Bedrock calls (~7s, requires AWS creds)
 ```
+
+Integration tests validate that config table content influences LLM classification output.
 
 ## Project Structure
 
 ```
 data-management-cdk/
 ├── bin/
-│   └── data-management-cdk.ts          # CDK app entry point (stage loop)
+│   └── data-management-cdk.ts         # CDK app entry (stage loop + email stack)
+├── config.ts                          # Stage definitions (Beta, Gamma, Prod)
 ├── lib/
-│   ├── config.ts                       # Stage definitions (Beta, Prod)
-│   ├── auth-stack.ts                   # Cognito User Pool
-│   ├── ingestion-stack.ts              # S3 landing bucket, EventBridge, SQS
-│   ├── processing-stack.ts             # Processing/archive Lambdas, buckets, DynamoDB
-│   ├── api-stack.ts                    # API Gateway, upload/documents/classifications Lambdas
+│   ├── stacks/
+│   │   ├── ingestion-stack.ts         # S3, EventBridge, SQS, Email Lambda
+│   │   ├── processing-stack.ts        # Processing/Archive Lambdas, DynamoDB, S3
+│   │   ├── auth-stack.ts              # Cognito + post-confirmation
+│   │   ├── api-stack.ts               # API Gateway + 4 handler Lambdas
+│   │   └── email-stack.ts             # SES receipt rule (us-east-1)
 │   └── utils/
-│       └── getSuffixFromStack.ts       # Unique suffix utility for resource naming
+│       └── getSuffixFromStack.ts
 ├── lambdas/
-│   ├── archive/index.ts                # Copies files to Glacier bucket
-│   ├── processing/index.ts             # File detection, email parsing, Textract, Comprehend, classification
-│   ├── upload/index.ts                 # Presigned URL generation
-│   ├── documents/index.ts              # Document list/get/patch
-│   └── classifications/index.ts        # Classification config CRUD
+│   ├── processing/                    # File detection, PDF conversion, Textract, Bedrock
+│   │   ├── index.ts                   # Orchestrator
+│   │   ├── adapters/                  # LLM strategy pattern (bedrock, ollama, openai, none)
+│   │   ├── utils/                     # buildBedrockPrompt, extractText, imageToPdf, etc.
+│   │   ├── constants/
+│   │   └── types/
+│   ├── email/index.ts                 # MIME parsing, attachment extraction
+│   ├── post-confirmation/index.ts     # Tenant provisioning on signup
+│   ├── upload/index.ts                # Presigned URL generation
+│   ├── documents/                     # List/get/patch/reprocess/stats handlers
+│   ├── classifications/index.ts       # Config CRUD
+│   ├── vendors/index.ts               # Vendor CRUD
+│   ├── archive/index.ts               # S3 copy to Glacier
+│   └── shared/utils/                  # tenantContext, logger, metrics
 ├── data/
-│   ├── seed-classifications.json       # Default classification keyword configs
-│   └── seed-classifications.ts         # Seed script for classification table
+│   ├── seed-config.ts                 # Seeds config table (types + vendors)
+│   ├── seed-classifications.json
+│   └── seed-vendors.json
 ├── test/
-│   ├── auth-stack.test.ts
-│   ├── ingestion-stack.test.ts
-│   ├── processing-stack.test.ts
-│   └── api-stack.test.ts
-├── package.json
-├── tsconfig.json
-└── cdk.json
+│   ├── *.test.ts                      # CDK assertion tests (per stack)
+│   ├── unit/                          # Lambda unit tests
+│   └── integration/                   # Bedrock integration tests
+├── jest.config.js                     # Unit tests (excludes integration/)
+└── jest.integration.config.js         # Integration tests (30s timeout)
 ```
-
-## Useful Commands
-
-| Command | Description |
-|---------|-------------|
-| `npm test` | Run all CDK assertion tests |
-| `npx cdk synth` | Synthesize CloudFormation templates |
-| `npx cdk deploy --all` | Deploy all stacks (all stages) |
-| `npx cdk deploy "Beta-DataMgmt*"` | Deploy all Beta stacks |
-| `npx cdk diff` | Show pending infrastructure changes |
-| `npx cdk destroy "Beta-DataMgmt*"` | Tear down Beta stacks (stateful resources retained) |
 
 ## Security
 
-- All data encrypted at rest with customer-managed KMS keys (one per stack, auto-rotation enabled)
-- S3 buckets: block all public access, enforce SSL, versioning enabled
-- SQS queues: KMS encrypted, dead-letter queues with 3-retry policy
-- DynamoDB tables: customer-managed KMS encryption
+- All data encrypted at rest with customer-managed KMS keys (one per stack, auto-rotation)
+- S3 buckets: block public access, enforce SSL, versioning
+- SQS queues: KMS encrypted, 3-retry DLQ, 14-day retention
+- DynamoDB tables: customer-managed KMS encryption, on-demand billing
 - API Gateway: Cognito JWT authorization on all routes
-- File uploads: presigned URLs scoped to user namespace, 15-minute expiry, content type enforced
-- Stateful resources use `RemovalPolicy.RETAIN` to prevent accidental data loss
+- File uploads: presigned URLs scoped to tenant namespace, 15-minute expiry
+- Multi-tenancy: every query uses tenantId partition key (no Scan operations)
+- Stateful resources: `RemovalPolicy.RETAIN`
 
 ## Coding Conventions
 
-- Arrow functions only (`const fn = () => {}`) — no `function` keyword
-- CDK stacks in `lib/`, Lambda handlers in `lambdas/{function-name}/index.ts`
-- One test file per stack in `test/`
+- Arrow functions only (`const fn = () => {}`)
+- Stacks in `lib/stacks/`, Lambdas in `lambdas/{function-name}/`
+- Lambda structure: thin index.ts router → handlers/ + utils/ + constants/ + types/
+- Cross-stack references via SSM Parameter Store (`/{stage}/datamgmt/*`)
 - Stack naming: `{Stage}-DataMgmt{Purpose}Stack`
-- Cross-stack references via direct CDK construct passing (not SSM)
+- Prettier: single quotes, no semicolons, trailing commas, 100 char width
