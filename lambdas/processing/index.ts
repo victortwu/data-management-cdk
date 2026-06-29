@@ -15,6 +15,7 @@ import { createLlmAdapter } from './adapters'
 import { buildBedrockPrompt } from './utils/buildBedrockPrompt'
 import { getFileFromS3 } from './utils/getFileFromS3'
 import { saveMetadata } from './utils/saveMetadata'
+import { emitDocumentProcessedEvent } from './utils/emitDocumentProcessedEvent'
 import { logger } from '../shared/utils/logger'
 import { metrics, MetricUnit } from '../shared/utils/metrics'
 
@@ -129,6 +130,7 @@ const processDocument = async (
   }
 
   await saveMetadata(tenantId, metadata, ddb)
+  await emitDocumentProcessedEvent(tenantId, metadata)
 }
 
 const processEmail = async (

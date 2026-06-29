@@ -219,6 +219,15 @@ export class DataMgmtProcessingStack extends cdk.Stack {
       }),
     )
 
+    processingLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['events:PutEvents'],
+        resources: [
+          `arn:aws:events:${this.region}:${this.account}:event-bus/default`,
+        ],
+      }),
+    )
+
     processingLambda.addEventSource(new sqsSources.SqsEventSource(ingestionQueue))
 
     // SSM Parameters for cross-stack references
