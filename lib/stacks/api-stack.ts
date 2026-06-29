@@ -37,6 +37,7 @@ export class DataMgmtApiStack extends cdk.Stack {
     const configTableArn = ssm.StringParameter.valueForStringParameter(this, `${prefix}/config-table-arn`)
     const userPoolId = ssm.StringParameter.valueForStringParameter(this, `${prefix}/user-pool-id`)
     const userPoolClientId = ssm.StringParameter.valueForStringParameter(this, `${prefix}/user-pool-client-id`)
+    const machineClientId = ssm.StringParameter.valueForStringParameter(this, `${prefix}/machine-client-id`)
 
     const landingBucket = s3.Bucket.fromBucketAttributes(this, 'LandingBucket', { bucketArn: landingBucketArn, bucketName: landingBucketName })
     const ingestionKey = kms.Key.fromKeyArn(this, 'IngestionKey', ingestionKeyArn)
@@ -68,8 +69,13 @@ export class DataMgmtApiStack extends cdk.Stack {
 
     const issuerUrl = `https://cognito-idp.${cdk.Stack.of(this).region}.amazonaws.com/${userPoolId}`
     const authorizer = new apigwv2Auth.HttpJwtAuthorizer('CognitoAuthorizer', issuerUrl, {
-      jwtAudience: [userPoolClientId],
+      jwtAudience: [userPoolClientId, machineClientId],
     })
+
+    // Machine client → tenant mapping (for client credentials auth)
+    // Format: JSON object { "clientId": "tenantId" }
+    // For BDK internal use, maps the single machine client to the BDK tenant
+    const machineClientTenantMap = JSON.stringify({ [machineClientId]: props.stage.machineClientTenantId ?? '' })
 
     // Upload Lambda
     const uploadLambda = new lambda.NodejsFunction(this, 'UploadLambda', {
@@ -81,6 +87,7 @@ export class DataMgmtApiStack extends cdk.Stack {
       environment: {
         LANDING_BUCKET: landingBucketName,
         DOCUMENT_TABLE: documentTableName,
+        MACHINE_CLIENT_TENANT_MAP: machineClientTenantMap,
       },
     })
     landingBucket.grantPut(uploadLambda)
@@ -98,6 +105,7 @@ export class DataMgmtApiStack extends cdk.Stack {
         DOCUMENT_TABLE: documentTableName,
         PROCESSED_BUCKET: processedBucketName,
         CONFIG_TABLE: configTableName,
+        MACHINE_CLIENT_TENANT_MAP: machineClientTenantMap,
       },
     })
     documentTable.grantReadWriteData(documentsLambda)
@@ -112,7 +120,7 @@ export class DataMgmtApiStack extends cdk.Stack {
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       tracing: lambdaBase.Tracing.ACTIVE,
-      environment: { CONFIG_TABLE: configTableName },
+      environment: { CONFIG_TABLE: configTableName, MACHINE_CLIENT_TENANT_MAP: machineClientTenantMap },
     })
     configTable.grantReadWriteData(classificationsLambda)
     processingKey.grantDecrypt(classificationsLambda)
@@ -124,7 +132,7 @@ export class DataMgmtApiStack extends cdk.Stack {
       runtime: lambdaBase.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       tracing: lambdaBase.Tracing.ACTIVE,
-      environment: { CONFIG_TABLE: configTableName },
+      environment: { CONFIG_TABLE: configTableName, MACHINE_CLIENT_TENANT_MAP: machineClientTenantMap },
     })
     configTable.grantReadWriteData(vendorsLambda)
     processingKey.grantDecrypt(vendorsLambda)

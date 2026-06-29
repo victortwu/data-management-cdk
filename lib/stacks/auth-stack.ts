@@ -92,6 +92,35 @@ export class DataMgmtAuthStack extends cdk.Stack {
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
     })
 
+    // Resource server for machine-to-machine auth (client credentials)
+    const resourceServer = this.userPool.addResourceServer('ParselyApi', {
+      identifier: 'parsely',
+      scopes: [
+        { scopeName: 'read', scopeDescription: 'Read documents, classifications, vendors' },
+        { scopeName: 'write', scopeDescription: 'Upload, update documents, manage config' },
+      ],
+    })
+
+    // Machine client (client credentials grant — for MCP server, CLI, integrations)
+    const machineClient = this.userPool.addClient('MachineClient', {
+      generateSecret: true,
+      oAuth: {
+        flows: { clientCredentials: true },
+        scopes: [
+          cognito.OAuthScope.resourceServer(resourceServer, { scopeName: 'read', scopeDescription: 'Read' }),
+          cognito.OAuthScope.resourceServer(resourceServer, { scopeName: 'write', scopeDescription: 'Write' }),
+        ],
+      },
+      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+    })
+
+    // Cognito requires a domain for OAuth token endpoint
+    this.userPool.addDomain('CognitoDomain', {
+      cognitoDomain: {
+        domainPrefix: `parsely-${props.stage.stageName.toLowerCase()}`,
+      },
+    })
+
     // SSM Parameters
     new ssm.StringParameter(this, 'UserPoolIdParam', {
       parameterName: `${prefix}/user-pool-id`,
@@ -105,8 +134,13 @@ export class DataMgmtAuthStack extends cdk.Stack {
       parameterName: `${prefix}/user-pool-arn`,
       stringValue: this.userPool.userPoolArn,
     })
+    new ssm.StringParameter(this, 'MachineClientIdParam', {
+      parameterName: `${prefix}/machine-client-id`,
+      stringValue: machineClient.userPoolClientId,
+    })
 
     new cdk.CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId })
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId })
+    new cdk.CfnOutput(this, 'MachineClientId', { value: machineClient.userPoolClientId })
   }
 }

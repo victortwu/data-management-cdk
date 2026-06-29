@@ -61,7 +61,7 @@ describe('Cognito User Pool', () => {
 describe('Cognito User Pool Client', () => {
   test('exists', () => {
     const { template } = createStack()
-    template.resourceCountIs('AWS::Cognito::UserPoolClient', 1)
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 2)
   })
 })
 
