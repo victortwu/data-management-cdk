@@ -26,6 +26,7 @@ export const emitDocumentProcessedEvent = async (
             confidence: metadata.confidence,
             source: metadata.source,
             extractedTextUri: metadata.extractedTextUri,
+            originalUri: metadata.originalUri,
           }),
         },
       ],
