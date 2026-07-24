@@ -64,5 +64,10 @@ Rules:
 - For vendorName, identify who SENT or ISSUED the document, not who it was sent to
 - If the document doesn't clearly match a known vendor, use the organization name as-is
 - For subType, prioritize matching the vendor/sender against subType hint keywords over generic terms found in the document body
-- Normalize amounts to USD format with dollar sign`
+- Normalize amounts to USD format with dollar sign
+
+Classification priority (apply in order):
+- If the document relates to government tax obligations, assessments, refunds, or penalties (IRS, state tax agencies) → classify as "tax" even if dollar amounts are present
+- If the document represents a bill, payment, or charge for goods/services consumed by the business (utilities, insurance premiums, vendor purchases, subscriptions, rent, service fees) → classify as "financial" even if it uses words like "notice" or "notification"
+- Classify as "correspondence" ONLY when no money is being exchanged, billed, or owed — purely informational communications`
 }
