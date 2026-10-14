@@ -2,6 +2,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { EventBridgeHandler } from 'aws-lambda'
 import { simpleParser } from 'mailparser'
 import { ulid } from 'ulid'
+import { extractEmailBody } from './extractBody'
 
 const s3 = new S3Client({})
 
@@ -43,14 +44,16 @@ export const handler: EventBridgeHandler<'Object Created', { bucket: { name: str
   const batchId = ulid()
   const prefix = `uploads/${TENANT_ID}/${batchId}`
 
-  // Process body as document if long enough
-  if ((parsed.text ?? '').length >= MIN_BODY_LENGTH) {
+  // Extract clean, human-readable body (HTML-first, fallback to plain text) and
+  // process it as a document if the CLEANED text is long enough.
+  const body = extractEmailBody(parsed)
+  if (body.length >= MIN_BODY_LENGTH) {
     const bodyFilename = `email-body-${batchId}.txt`
     await s3.send(
       new PutObjectCommand({
         Bucket: LANDING_BUCKET,
         Key: `${prefix}/${bodyFilename}`,
-        Body: parsed.text,
+        Body: body,
         Metadata: { source: 'email', 'email-subject': sanitizeForMetadata(parsed.subject ?? '') },
       }),
     )

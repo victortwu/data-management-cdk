@@ -3,3 +3,9 @@ cdk.out
 *.js
 *.d.ts
 !jest.config.js
+
+# Raw vendor emails: local-only source material for fixture generation.
+# They carry unredacted PII (account numbers, signed payment tokens, customer
+# identifiers). The SANITIZED fixture PDFs under test/integration/fixtures/ ARE
+# committed (deterministic eval inputs); the raw .eml sources are not.
+data/raw-emails/
