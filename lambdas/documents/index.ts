@@ -10,6 +10,7 @@ import { getDocument } from './handlers/getDocument'
 import { patchDocument } from './handlers/patchDocument'
 import { getClassificationStats } from './handlers/getClassificationStats'
 import { reprocessDocuments } from './handlers/reprocessDocuments'
+import { reprocessOne } from './handlers/reprocessOne'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
@@ -24,8 +25,10 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
   try {
     if (method === 'GET' && path.endsWith('/classifications/stats'))
       return getClassificationStats(tenantId, ddb)
-    if (method === 'POST' && path.endsWith('/documents/reprocess'))
+    if (method === 'POST' && path.endsWith('/documents/reprocess') && !id)
       return reprocessDocuments(tenantId, ddb)
+    if (method === 'POST' && id && path.endsWith('/reprocess'))
+      return reprocessOne(tenantId, id, event, ddb)
     if (method === 'GET' && !id) return listDocuments(tenantId, event, ddb)
     if (method === 'GET' && id) return getDocument(tenantId, id, ddb)
     if (method === 'PATCH' && id) return patchDocument(tenantId, id, event, ddb)

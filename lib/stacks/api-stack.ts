@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as kms from 'aws-cdk-lib/aws-kms'
 import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as lambdaBase from 'aws-cdk-lib/aws-lambda'
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2'
@@ -113,6 +114,17 @@ export class DataMgmtApiStack extends cdk.Stack {
     configTable.grantReadData(documentsLambda)
     processingKey.grantDecrypt(documentsLambda)
 
+    // Single-doc reprocess (Parsely #2) re-emits the canonical DocumentProcessed
+    // event via emitDocumentProcessedEvent (default EventBridge bus). Scope the
+    // grant to the default bus ARN (NOT '*'); mirrors the processing Lambda.
+    // The emitter targets the default bus implicitly, so NO new env var is needed.
+    documentsLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['events:PutEvents'],
+        resources: [`arn:aws:events:${this.region}:${this.account}:event-bus/default`],
+      }),
+    )
+
     // Classifications Lambda
     const classificationsLambda = new lambda.NodejsFunction(this, 'ClassificationsLambda', {
       entry: path.join(__dirname, '..', '..', 'lambdas', 'classifications', 'index.ts'),
@@ -147,6 +159,7 @@ export class DataMgmtApiStack extends cdk.Stack {
     this.api.addRoutes({ path: '/documents', methods: [apigwv2.HttpMethod.GET], integration: docsInt, authorizer })
     this.api.addRoutes({ path: '/documents/reprocess', methods: [apigwv2.HttpMethod.POST], integration: docsInt, authorizer })
     this.api.addRoutes({ path: '/documents/{id}', methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH], integration: docsInt, authorizer })
+    this.api.addRoutes({ path: '/documents/{id}/reprocess', methods: [apigwv2.HttpMethod.POST], integration: docsInt, authorizer })
     this.api.addRoutes({ path: '/classifications', methods: [apigwv2.HttpMethod.GET], integration: classInt, authorizer })
     this.api.addRoutes({ path: '/classifications/stats', methods: [apigwv2.HttpMethod.GET], integration: docsInt, authorizer })
     this.api.addRoutes({ path: '/classifications/{documentType}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: classInt, authorizer })
