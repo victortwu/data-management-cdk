@@ -71,3 +71,27 @@ describe('Single-doc reprocess (Parsely #2)', () => {
     expect(putEventsStatements[0].Resource).not.toBe('*')
   })
 })
+
+describe('Single-doc reprocess — reclassify mode (Parsely #3)', () => {
+  test('documents Lambda role has bedrock:InvokeModel scoped to Nova Lite ARNs (NOT *)', () => {
+    const { template } = createStacks()
+    const policies = template.findResources('AWS::IAM::Policy')
+    const bedrockStatements = Object.values(policies).flatMap((p: any) =>
+      (p.Properties.PolicyDocument.Statement as any[]).filter(
+        (s) =>
+          s.Action === 'bedrock:InvokeModel' ||
+          (Array.isArray(s.Action) && s.Action.includes('bedrock:InvokeModel')),
+      ),
+    )
+    // Exactly one bedrock grant in this stack (the Documents Lambda's reclassify path).
+    expect(bedrockStatements).toHaveLength(1)
+    const resource = bedrockStatements[0].Resource
+    // Scoped to specific Nova Lite ARNs — never a bare '*'.
+    expect(resource).not.toBe('*')
+    expect(Array.isArray(resource)).toBe(true)
+    const flat = JSON.stringify(resource)
+    expect(flat).toContain('foundation-model/amazon.nova-lite-v1:0')
+    expect(flat).toContain('foundation-model/us.amazon.nova-lite-v1:0')
+    expect(flat).toContain('inference-profile/us.amazon.nova-lite-v1:0')
+  })
+})

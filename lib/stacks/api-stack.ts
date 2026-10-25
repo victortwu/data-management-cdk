@@ -78,6 +78,10 @@ export class DataMgmtApiStack extends cdk.Stack {
     // For BDK internal use, maps the single machine client to the BDK tenant
     const machineClientTenantMap = JSON.stringify({ [machineClientId]: props.stage.machineClientTenantId ?? '' })
 
+    // Shared LLM config — mirrors the processing Lambda so the `reclassify` reprocess
+    // mode uses the SAME classifier (Bedrock Nova Lite) as the ingestion happy path.
+    const llmModelId = 'us.amazon.nova-lite-v1:0'
+
     // Upload Lambda
     const uploadLambda = new lambda.NodejsFunction(this, 'UploadLambda', {
       entry: path.join(__dirname, '..', '..', 'lambdas', 'upload', 'index.ts'),
@@ -107,6 +111,9 @@ export class DataMgmtApiStack extends cdk.Stack {
         PROCESSED_BUCKET: processedBucketName,
         CONFIG_TABLE: configTableName,
         MACHINE_CLIENT_TENANT_MAP: machineClientTenantMap,
+        // `reclassify` reprocess mode re-runs the shared Bedrock classifier.
+        LLM_PROVIDER: 'bedrock',
+        LLM_MODEL_ID: llmModelId,
       },
     })
     documentTable.grantReadWriteData(documentsLambda)
@@ -122,6 +129,23 @@ export class DataMgmtApiStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['events:PutEvents'],
         resources: [`arn:aws:events:${this.region}:${this.account}:event-bus/default`],
+      }),
+    )
+
+    // Single-doc reprocess `reclassify` mode (Parsely #3) re-runs Bedrock classification
+    // over the already-stored extracted text. Grant bedrock:InvokeModel scoped to the
+    // Nova Lite foundation model + its cross-region inference profile (NOT a bare '*').
+    // (The cross-region inference profile `us.amazon.nova-lite-v1:0` fans out to the
+    // base `amazon.nova-lite-v1:0` foundation model in the regional pool, so both the
+    // inference-profile ARN and the foundation-model ARN must be allowed.)
+    documentsLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: [
+          `arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0`,
+          `arn:aws:bedrock:*::foundation-model/${llmModelId}`,
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${llmModelId}`,
+        ],
       }),
     )
 
