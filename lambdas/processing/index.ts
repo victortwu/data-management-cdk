@@ -15,6 +15,7 @@ import { createLlmAdapter } from './adapters'
 import { buildBedrockPrompt } from './utils/buildBedrockPrompt'
 import { getFileFromS3 } from './utils/getFileFromS3'
 import { saveMetadata } from './utils/saveMetadata'
+import { persistPreClassifiedUris } from './utils/persistPreClassifiedUris'
 import { emitDocumentProcessedEvent } from './utils/emitDocumentProcessedEvent'
 import { logger } from '../shared/utils/logger'
 import { metrics, MetricUnit } from '../shared/utils/metrics'
@@ -93,8 +94,21 @@ const processDocument = async (
     new PutObjectCommand({ Bucket: PROCESSED_BUCKET, Key: extractedTextUri, Body: extractedText }),
   )
 
-  // Skip LLM if document was pre-classified at upload
-  if (skipLlm) return
+  // Pre-classified at upload: skip LLM, keep the user's metadata, persist URIs and emit
+  if (skipLlm) {
+    const record = await persistPreClassifiedUris(
+      tenantId,
+      documentId,
+      {
+        originalUri: `s3://${PROCESSED_BUCKET}/${originalUri}`,
+        convertedPdfUri: `s3://${PROCESSED_BUCKET}/${convertedPdfUri}`,
+        extractedTextUri: `s3://${PROCESSED_BUCKET}/${extractedTextUri}`,
+      },
+      ddb,
+    )
+    await emitDocumentProcessedEvent(tenantId, record)
+    return
+  }
 
   // Analyze with LLM
   const analysis = await llm.analyze(extractedText, systemPrompt)
