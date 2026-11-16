@@ -98,6 +98,7 @@ export class DataMgmtApiStack extends cdk.Stack {
     landingBucket.grantPut(uploadLambda)
     ingestionKey.grantEncrypt(uploadLambda)
     documentTable.grantWriteData(uploadLambda)
+    processingKey.grantDecrypt(uploadLambda) // document table is encrypted with the processing key
 
     // Documents Lambda
     const documentsLambda = new lambda.NodejsFunction(this, 'DocumentsLambda', {

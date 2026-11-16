@@ -132,3 +132,17 @@ describe('CfnOutputs', () => {
     template.hasOutput('ApiUrl', { Value: Match.anyValue() })
   })
 })
+
+describe('UploadLambda KMS access (Parsely #7)', () => {
+  test('can decrypt with the processing key to write pre-classified records', () => {
+    const app = new cdk.App()
+    const stage = { stageName: 'Test' }
+    const api = new DataMgmtApiStack(app, 'Test-DataMgmtApiStack', { stage })
+    const policies = Template.fromStack(api).findResources('AWS::IAM::Policy')
+    const upload = Object.entries(policies).find(([id]) =>
+      id.startsWith('UploadLambdaServiceRoleDefaultPolicy'),
+    )
+    expect(upload).toBeDefined()
+    expect(JSON.stringify(upload![1])).toContain('kms:Decrypt')
+  })
+})
