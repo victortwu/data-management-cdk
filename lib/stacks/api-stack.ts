@@ -192,5 +192,11 @@ export class DataMgmtApiStack extends cdk.Stack {
     this.api.addRoutes({ path: '/vendors/{vendorId}', methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE], integration: vendorsInt, authorizer })
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint })
+
+    // Published for the Expense API stack (PARSELY_API_URL). No trailing slash: consumers append `/documents/...`.
+    new ssm.StringParameter(this, 'ApiUrlParam', {
+      parameterName: `${prefix}/api-url`,
+      stringValue: this.api.apiEndpoint,
+    })
   }
 }

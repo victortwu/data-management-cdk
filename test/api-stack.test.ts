@@ -146,3 +146,16 @@ describe('UploadLambda KMS access (Parsely #7)', () => {
     expect(JSON.stringify(upload![1])).toContain('kms:Decrypt')
   })
 })
+
+describe('SSM publication', () => {
+  test('publishes the HTTP API endpoint at /{stage}/datamgmt/api-url', () => {
+    const { template } = createStacks()
+    const apiId = Object.keys(template.findResources('AWS::ApiGatewayV2::Api'))[0]
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/Test/datamgmt/api-url',
+      Type: 'String',
+      // ApiEndpoint is the bare https://{id}.execute-api.{region}.amazonaws.com (no trailing slash)
+      Value: { 'Fn::GetAtt': [apiId, 'ApiEndpoint'] },
+    })
+  })
+})
